@@ -4278,6 +4278,7 @@ void D110AudioProcessorEditor::parentHierarchyChanged()
 // peer directly - the same call Nonet Sequencer makes. Standalone only: inside a DAW the window
 // belongs to the host.
 void D110AudioProcessorEditor::applyWindowIcon() {
+#if !JUCE_ANDROID   // the Android app has no window icon (and its binary data has no app_icon)
 	if (processor.wrapperType != juce::AudioProcessor::wrapperType_Standalone) return;
 	auto *peer = getPeer();
 	if (peer == nullptr) return;
@@ -4285,6 +4286,7 @@ void D110AudioProcessorEditor::applyWindowIcon() {
 	                                                   size_t(BinaryData::app_icon_pngSize));
 	// The source is ~1600px; an X11 icon property that size is 10 MB, so hand over a 256px copy.
 	if (icon.isValid()) peer->setIcon(icon.rescaled(256, 256, juce::Graphics::highResamplingQuality));
+#endif
 }
 
 float D110AudioProcessorEditor::totalRefHeight() const {
