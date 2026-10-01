@@ -12,6 +12,7 @@
  #include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
 #endif
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
@@ -862,7 +863,10 @@ void D110Panel::showOptionsMenu()
 		"again, then ENTER",
 		false, false);
 
-	m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this).withMousePosition(),
+	// No withTargetComponent(this): this panel carries the editor-wide setTransform scale, and a
+	// popup inherits its target's scale - the menu text shrank with the window. A bare mouse
+	// position keeps the menu at the OS scale at any window size.
+	m.showMenuAsync(juce::PopupMenu::Options().withMousePosition(),
 		[this, reverb, superMode, reverbOn, superOn, ins, outs](int result) {
 			// The port lists are captured as they were when the menu opened, so an entry
 			// always means the device the user actually saw and picked.
@@ -1144,6 +1148,7 @@ D110EditorPane::D110EditorPane(D110AudioProcessor &p) : processor(p), soundbankB
 void D110EditorPane::timerCallback() { refreshFromInstrument(); }
 
 void D110EditorPane::selectTab(int index) {
+	const Tab previous = tab;
 	switch (index) {
 	case 1:  tab = Tab::Tone; break;
 	case 2:  tab = Tab::Rhythm; break;
@@ -1156,8 +1161,14 @@ void D110EditorPane::selectTab(int index) {
 	case 9:  tab = Tab::Utility; break;
 	default: tab = Tab::Parts; break;
 	}
+	if (tab != previous) utilityScrollOffset = 0.0f;
 	layout();
 	repaint();
+}
+
+bool D110EditorPane::pixelScrollTab() const {
+	return tab == Tab::Parts || tab == Tab::Tone || tab == Tab::System
+	    || (tab == Tab::Patches && patchesSubTab == PatchesSubTab::PartsOfPatch);
 }
 
 void D110EditorPane::refreshFromInstrument() {
@@ -1230,6 +1241,36 @@ void D110EditorPane::layout() {
 	area.removeFromTop(8.0f);
 	area.removeFromBottom(16.0f);   // strip under the explanation at the bottom
 
+	rowScrollVar = nullptr;
+	rowScrollMax = 0;
+	rowScrollTrack = rowScrollThumb = {};
+
+	// PARTS, TONE, SYSTEM and PARTS OF PATCH squeeze their rows down to a minimum height and then
+	// run out of room on a short window. Same trick as UTILITY (see layoutUtility()): lay them
+	// out in a rectangle tall enough for that minimum, then shift everything up by the scroll
+	// offset and show a scrollbar. Rectangle::removeFromTop() clamps, so the working rectangle
+	// really has to be taller than the visible one - measuring overflow afterwards would not work.
+	const bool pixelTab = pixelScrollTab();
+	juce::Rectangle<float> viewport = area;
+	float visibleH = area.getHeight(), virtualH = visibleH;
+	if (pixelTab) {
+		area.removeFromRight(10.0f);   // scrollbar gutter, reserved even when not needed
+		visibleH = area.getHeight();
+		float hMin = 210.0f;                                  // PARTS: heading + 9 rows of 20
+		if (tab == Tab::Tone) {
+			constexpr size_t most = 15;                       // longest of kWg/kPitchEnv/kTvf/kTva
+			hMin = 225.0f + 14.0f * float(most);              // header rows + 4 partials + 14px param rows
+		} else if (tab == Tab::System) {
+			hMin = 220.0f;
+		} else if (tab == Tab::Patches) {
+			hMin = 240.0f;
+		}
+		virtualH = juce::jmax(visibleH, hMin);
+		area.setHeight(virtualH);
+		contentArea = viewport;
+	}
+	if (!pixelTab && tab != Tab::Utility) utilityScrollTrack = utilityScrollThumb = {};
+
 	switch (tab) {
 	case Tab::Parts:   layoutParts(area); break;
 	case Tab::Tone:    layoutTone(area); break;
@@ -1244,6 +1285,42 @@ void D110EditorPane::layout() {
 		break;
 	case Tab::Utility: contentArea = area; layoutUtility(area); break;
 	default:           contentArea = area; break;   // the monitor is painted as a whole
+	}
+
+	if (pixelTab) {
+		const float maxScroll = juce::jmax(0.0f, virtualH - visibleH);
+		utilityScrollOffset = juce::jlimit(0.0f, maxScroll, utilityScrollOffset);
+		utilityContentHeight = virtualH;
+		const float dy = -utilityScrollOffset;
+		for (auto &c : cells) c.bounds.translate(0.0f, dy);
+		for (auto &l : labels) l.bounds.translate(0.0f, dy);
+		for (auto &b : buttons) b.bounds.translate(0.0f, dy);
+		for (auto &r : partBounds) r.translate(0.0f, dy);
+		for (auto &r : tonePartialBounds) r.translate(0.0f, dy);
+		for (auto &r : patchesSubTabBounds) r.translate(0.0f, dy);
+		toneNameBounds.translate(0.0f, dy);
+		tableArea.translate(0.0f, dy);
+		if (maxScroll > 0.0f) {
+			constexpr float kTrackW = 8.0f;
+			utilityScrollTrack = { viewport.getRight() - kTrackW, viewport.getY(), kTrackW, viewport.getHeight() };
+			const float thumbH = juce::jmax(24.0f, visibleH * (visibleH / virtualH));
+			const float thumbY = viewport.getY()
+			                   + (viewport.getHeight() - thumbH) * (utilityScrollOffset / maxScroll);
+			utilityScrollThumb = { utilityScrollTrack.getX(), thumbY, kTrackW, thumbH };
+		} else {
+			utilityScrollTrack = utilityScrollThumb = {};
+		}
+	}
+
+	// Visible scrollbar for the row-paged lists, in the margin to the right of the table.
+	if (rowScrollVar != nullptr && rowScrollMax > 0 && !tableArea.isEmpty()) {
+		constexpr float kTrackW = 8.0f;
+		rowScrollTrack = { tableArea.getRight() + 3.0f, tableArea.getY(), kTrackW, tableArea.getHeight() };
+		const float total = float(rowScrollMax + rowScrollVisible);
+		const float thumbH = juce::jmax(24.0f, rowScrollTrack.getHeight() * float(rowScrollVisible) / total);
+		const float thumbY = rowScrollTrack.getY()
+		                   + (rowScrollTrack.getHeight() - thumbH) * (float(*rowScrollVar) / float(rowScrollMax));
+		rowScrollThumb = { rowScrollTrack.getX(), thumbY, kTrackW, thumbH };
 	}
 
 	// The entry field belongs to the place, not the editor: it disappears with a tab change.
@@ -1508,6 +1585,9 @@ void D110EditorPane::layoutRhythm(juce::Rectangle<float> area) {
 	rowHeight = juce::jlimit(18.0f, 30.0f, area.getHeight() / 14.0f);
 	const int visible = juce::jmax(1, int(area.getHeight() / rowHeight));
 	rhythmScroll = juce::jlimit(0, juce::jmax(0, D110CoreType::kNumRhythmKeys - visible), rhythmScroll);
+	rowScrollVar = &rhythmScroll;
+	rowScrollMax = juce::jmax(0, D110CoreType::kNumRhythmKeys - visible);
+	rowScrollVisible = visible;
 
 	const float colFrac[5] = { 0.00f, 0.16f, 0.52f, 0.68f, 0.84f };
 	const char *kHead[5] = { "KEY", "DRUM SOUND", "LEVEL", "PAN", "OUTPUT" };
@@ -1588,6 +1668,9 @@ void D110EditorPane::layoutPatchesList(juce::Rectangle<float> area) {
 	rowHeight = juce::jlimit(16.0f, 24.0f, listArea.getHeight() / 13.0f);
 	const int rows = juce::jmax(1, int(listArea.getHeight() / rowHeight));
 	patchScroll = juce::jlimit(0, juce::jmax(0, D110CoreType::kNumPatches - rows), patchScroll);
+	rowScrollVar = &patchScroll;
+	rowScrollMax = juce::jmax(0, D110CoreType::kNumPatches - rows);
+	rowScrollVisible = rows;
 
 	for (int i = 0; i < rows; ++i) {
 		const int patch = patchScroll + i;
@@ -1706,6 +1789,9 @@ void D110EditorPane::layoutTimbres(juce::Rectangle<float> area) {
 	rowHeight = juce::jlimit(18.0f, 28.0f, area.getHeight() / 14.0f);
 	const int rows = juce::jmax(1, int(area.getHeight() / rowHeight));
 	timbreScroll = juce::jlimit(0, juce::jmax(0, D110CoreType::kNumTimbres - rows), timbreScroll);
+	rowScrollVar = &timbreScroll;
+	rowScrollMax = juce::jmax(0, D110CoreType::kNumTimbres - rows);
+	rowScrollVisible = rows;
 
 	for (int i = 0; i < rows; ++i) {
 		const int slot = timbreScroll + i;
@@ -1754,6 +1840,9 @@ void D110EditorPane::layoutTones(juce::Rectangle<float> area) {
 	const int rows = juce::jmax(1, int(area.getHeight() / rowHeight));
 	toneRows = rows;
 	toneScroll = juce::jlimit(0, juce::jmax(0, D110CoreType::kNumTones - rows * 3), toneScroll);
+	rowScrollVar = &toneScroll;
+	rowScrollMax = juce::jmax(0, D110CoreType::kNumTones - rows * 3);
+	rowScrollVisible = rows * 3;
 	const float colW = w / 3.0f;
 	for (int col = 0; col < 3; ++col)
 		for (int r = 0; r < rows; ++r) {
@@ -2722,6 +2811,11 @@ void D110EditorPane::paint(juce::Graphics &g) {
 		return;
 	}
 
+	// The scrolled tabs (see layout()) shift their content up under the tab strip, so everything
+	// from here to the scrollbar below is clipped to the content rectangle.
+	g.saveState();
+	if (pixelScrollTab()) g.reduceClipRegion(contentArea.getSmallestIntegerContainer());
+
 	// Part selection: on these tabs the part is not a unit parameter but WHOSE record we are
 	// looking at, so it is a row of small buttons rather than a field with a value.
 	if (tab == Tab::Tone || tab == Tab::Timbres || tab == Tab::Tones) {
@@ -2837,13 +2931,22 @@ void D110EditorPane::paint(juce::Graphics &g) {
 	}
 	} // end of the UTILITY clip scope
 
-	// Thin scrollbar on the right - only while the UTILITY tab genuinely doesn't fit; the
-	// track/thumb are computed in layoutUtility() along with the rest of that tab's geometry.
-	if (tab == Tab::Utility && !utilityScrollTrack.isEmpty()) {
+	g.restoreState();   // end of the scrolled-content clip
+
+	// Thin scrollbar on the right - only while the tab genuinely doesn't fit; the track/thumb are
+	// computed in layout() (layoutUtility() for UTILITY) along with the rest of the geometry.
+	if (usesPixelScroll() && !utilityScrollTrack.isEmpty()) {
 		g.setColour(kEdBox());
 		g.fillRoundedRectangle(utilityScrollTrack, 3.0f);
 		g.setColour(kEdBorder().brighter(0.2f));
 		g.fillRoundedRectangle(utilityScrollThumb.reduced(1.0f), 3.0f);
+	}
+	// Same look for the row-paged lists' scrollbar.
+	if (!rowScrollTrack.isEmpty()) {
+		g.setColour(kEdBox());
+		g.fillRoundedRectangle(rowScrollTrack, 3.0f);
+		g.setColour(kEdBorder().brighter(0.2f));
+		g.fillRoundedRectangle(rowScrollThumb.reduced(1.0f), 3.0f);
 	}
 
 	// One line about what this drawer is, so it does not read as a separate "plugin mixer"
@@ -3300,6 +3403,7 @@ void D110EditorPane::buttonPressed(int id) {
 // --- mouse ------------------------------------------------------------------
 
 int D110EditorPane::cellAt(juce::Point<float> p) const {
+	if (pixelScrollTab() && !contentArea.contains(p)) return -1;   // scrolled out of sight
 	for (size_t i = 0; i < cells.size(); ++i)
 		if (cells[i].bounds.contains(p)) return int(i);
 	return -1;
@@ -3476,17 +3580,36 @@ void D110EditorPane::mouseDown(const juce::MouseEvent &e) {
 		return;
 	}
 
+	// Scrolled content can sit (invisibly) under the tab strip - nothing there may be clicked.
+	if (pixelScrollTab() && !contentArea.contains(p)) return;
+
 	if (tab == Tab::Patches) {
 		for (int i = 0; i < 2; ++i) {
 			if (!patchesSubTabBounds[(size_t)i].contains(p)) continue;
 			patchesSubTab = static_cast<PatchesSubTab>(i);
+			utilityScrollOffset = 0.0f;
 			layout();
 			repaint();
 			return;
 		}
 	}
 
-	if (tab == Tab::Utility && !utilityScrollTrack.isEmpty()) {
+	if (!rowScrollTrack.isEmpty() && rowScrollVar != nullptr) {
+		if (rowScrollThumb.contains(p)) {
+			draggingRowScroll = true;
+			rowScrollDragStartY = p.y;
+			rowScrollDragStartValue = *rowScrollVar;
+			return;
+		}
+		if (rowScrollTrack.contains(p)) {
+			*rowScrollVar += (p.y < rowScrollThumb.getY() ? -rowScrollVisible : rowScrollVisible);
+			layout();
+			repaint();
+			return;
+		}
+	}
+
+	if (usesPixelScroll() && !utilityScrollTrack.isEmpty()) {
 		if (utilityScrollThumb.contains(p)) {
 			draggingUtilityScroll = true;
 			utilityScrollDragStartY = p.y;
@@ -3680,6 +3803,15 @@ void D110EditorPane::mouseDown(const juce::MouseEvent &e) {
 }
 
 void D110EditorPane::mouseDrag(const juce::MouseEvent &e) {
+	if (draggingRowScroll && rowScrollVar != nullptr) {
+		const float trackRange = juce::jmax(1.0f, rowScrollTrack.getHeight() - rowScrollThumb.getHeight());
+		const float deltaPx = e.position.y - rowScrollDragStartY;
+		*rowScrollVar = juce::jlimit(0, rowScrollMax,
+		    rowScrollDragStartValue + juce::roundToInt(deltaPx * float(rowScrollMax) / trackRange));
+		layout();
+		repaint();
+		return;
+	}
 	if (draggingUtilityScroll) {
 		const float maxScroll = juce::jmax(0.0f, utilityContentHeight - contentArea.getHeight());
 		const float trackRange = juce::jmax(1.0f, utilityScrollTrack.getHeight()
@@ -3699,6 +3831,7 @@ void D110EditorPane::mouseDrag(const juce::MouseEvent &e) {
 }
 
 void D110EditorPane::mouseUp(const juce::MouseEvent &) {
+	if (draggingRowScroll) { draggingRowScroll = false; return; }
 	if (draggingUtilityScroll) { draggingUtilityScroll = false; return; }
 	if (dragging < 0) return;
 	dragging = -1;
@@ -3734,7 +3867,7 @@ void D110EditorPane::mouseWheelMove(const juce::MouseEvent &e, const juce::Mouse
 	else if (tab == Tab::Timbres) timbreScroll += (w.deltaY > 0 ? -3 : 3);
 	else if (tab == Tab::Patches && patchesSubTab == PatchesSubTab::AllPatches) patchScroll += (w.deltaY > 0 ? -3 : 3);
 	else if (tab == Tab::Tones) toneScroll += (w.deltaY > 0 ? -3 : 3);
-	else if (tab == Tab::Utility) utilityScrollOffset += (w.deltaY > 0 ? -40.0f : 40.0f);
+	else if (usesPixelScroll()) utilityScrollOffset += (w.deltaY > 0 ? -40.0f : 40.0f);
 	else return;
 	layout();
 	repaint();
@@ -4130,6 +4263,28 @@ void D110AudioProcessorEditor::parentHierarchyChanged()
 		// feedback_no_blind_wm_fixes memory. Stick to minimise+close (StandaloneFilterWindow's
 		// own default) unless Alan explicitly asks for maximise again.
 		if (!dw->isUsingNativeTitleBar()) dw->setUsingNativeTitleBar(true);
+	applyWindowIcon();
+	// The window may not be on the desktop yet (no native peer to hold an icon until it is shown),
+	// and switching to the native title bar can recreate the peer - retry once it has settled.
+	for (int delayMs : { 400, 2000 })
+		juce::Timer::callAfterDelay(delayMs, [safe = juce::Component::SafePointer<D110AudioProcessorEditor>(this)] {
+			if (safe != nullptr) safe->applyWindowIcon();
+		});
+}
+
+// The Di-111 wordmark (docs/app_icon.png) as the Standalone window's / taskbar icon. JUCE's
+// ICON_BIG/ICON_SMALL cover Windows and macOS only, and DocumentWindow::setIcon() only paints
+// the custom title bar, so on Linux the X11 window property (_NET_WM_ICON) is set on the native
+// peer directly - the same call Nonet Sequencer makes. Standalone only: inside a DAW the window
+// belongs to the host.
+void D110AudioProcessorEditor::applyWindowIcon() {
+	if (processor.wrapperType != juce::AudioProcessor::wrapperType_Standalone) return;
+	auto *peer = getPeer();
+	if (peer == nullptr) return;
+	const auto icon = juce::ImageFileFormat::loadFrom(BinaryData::app_icon_png,
+	                                                   size_t(BinaryData::app_icon_pngSize));
+	// The source is ~1600px; an X11 icon property that size is 10 MB, so hand over a 256px copy.
+	if (icon.isValid()) peer->setIcon(icon.rescaled(256, 256, juce::Graphics::highResamplingQuality));
 }
 
 float D110AudioProcessorEditor::totalRefHeight() const {

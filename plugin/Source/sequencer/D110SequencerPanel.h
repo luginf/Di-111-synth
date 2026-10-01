@@ -48,6 +48,12 @@ public:
 	// on the desktop plugin or Nonet Sequencer, neither of which sets it.
 	std::function<void(juce::PopupMenu &)> onBarMenuButtonExtra;
 
+	// Android app only: when set, a mode-switch button (cycles front panel / sequencer /
+	// soundbanks, see AppModeIcons.h) takes a column just left of the bar-menu button, and the
+	// other transport columns squeeze a little to make room. Unset on the desktop.
+	std::function<void()> onModeButton;
+	std::function<int()> modeButtonMode; // d110ui::AppMode as int, for the icon
+
 private:
 	void timerCallback() override; // repaints the bar readout while the transport rolls
 
@@ -140,7 +146,8 @@ private:
 
 	juce::Rectangle<float> stopBounds, playBounds, recBounds;
 	juce::Rectangle<float> tempoBounds, timeSigBounds, metronomeBounds, precountBounds, loopBounds;
-	juce::Rectangle<float> barPrevBounds, barNextBounds, barReadoutBounds, barMenuBounds;
+	bool stackedTransport = false; // Android portrait three-row transport, see layout()
+	juce::Rectangle<float> barPrevBounds, barNextBounds, barReadoutBounds, barMenuBounds, modeBounds;
 	juce::Rectangle<float> loadBounds, saveBounds, recModeBounds, newBounds, undoBounds, redoBounds;
 	// Manual "resend Program Change/Bank/Volume/Pan now" - see D110SequencerHost.h's
 	// resyncProgramChanges().

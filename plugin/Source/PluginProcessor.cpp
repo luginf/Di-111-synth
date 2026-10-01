@@ -262,7 +262,7 @@ void D110AudioProcessor::setPoweredOn(bool shouldBePoweredOn) {
 			// The MAME-backed core does hold a single process-wide machine slot (see
 			// D110Core::sMachineLive) - a second D110Emulator instance really can't run
 			// alongside a first.
-			lastError = "Another D-110 Emulator instance is already switched on. "
+			lastError = "Another Di-111 instance is already switched on. "
 			            "Only one can run at a time - switch that one off first.";
 #endif
 			return;

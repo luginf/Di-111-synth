@@ -17,7 +17,7 @@ install_stripped() { # source destination
     strip "$2"
     echo "updated $2"
 }
-install_stripped "$BUILD/D110EmulatorNative_artefacts/Release/Standalone/D-110 Emulator" "$BUNDLE/D-110_Emulator"
+install_stripped "$BUILD/D110EmulatorNative_artefacts/Release/Standalone/Di-111" "$BUNDLE/Di-111"
 install_stripped "$BUILD/D50Emulator_artefacts/Release/Standalone/D-50 Emulator" "$BUNDLE/D-50_Emulator"
 
 if [ -x "$NONET_SEQ_BIN" ]; then

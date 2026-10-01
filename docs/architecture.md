@@ -141,9 +141,12 @@ card. Everything belonging to the *plugin itself* instead - the light/dark theme
 drawer's height, and the sequencer's 4 song slots (see [`sequencer.md`](sequencer.md)) - lives
 in the Standalone build's own settings file, which the NVRAM folder does not include:
 
-- Linux: `~/.config/D-110 Emulator.settings`
-- macOS: `~/Library/Application Support/D-110 Emulator.settings`
-- Windows: `%APPDATA%\D-110 Emulator.settings`
+- Linux: `~/.config/Di-111.settings`
+- macOS: `~/Library/Application Support/Di-111.settings`
+- Windows: `%APPDATA%\Di-111.settings`
+
+(Called `D-110 Emulator.settings` before the app was renamed Di-111 - copy the old file to the new
+name to keep your songs and theme.)
 
 If a song written on one machine isn't showing up on another after copying the NVRAM folder
 over, check that this settings file (theme/song slots, not the instrument's own memory - see
@@ -216,3 +219,13 @@ instrument's battery RAM, and travels with your project the same way. See
   [`sysex_address_map.md`](sysex_address_map.md) for exactly why each one is excluded. (Master
   Tune used to be on this list too; it is now mirrored, verified directly against the sound
   engine's own pitch computation.)
+
+
+## Extended editor drawer: scrolling
+
+On a short window the editor tabs keep their readable row heights and scroll instead of shrinking:
+PARTS, TONE, SYSTEM and PARTS OF PATCH scroll in pixels (scrollbar on the right, wheel off the
+fields); RHYTHM, ALL PATCHES, TIMBRES and TONES page a window of rows with a visible scrollbar
+(dragging, track clicks and the wheel); SOUNDBANKS scrolls its ALL/FAVORITES/A-Z strip the same way.
+The wheel over a *field* still edits the value. The right-click menu on the panel is shown at
+the OS scale regardless of the window size.

@@ -191,6 +191,14 @@ private:
 
 	juce::Rectangle<float> listArea, groupStripArea, partStripArea;
 	std::vector<juce::Rectangle<float>> groupBounds; // parallel to groupKeys
+	// The ALL/FAVORITES/A-Z strip keeps a readable row height and scrolls (wheel, scrollbar,
+	// drag) when the window is too short for all of it - rows used to shrink until the labels
+	// overlapped. groupBounds already include the scroll offset.
+	void layoutGroups();
+	float groupScroll = 0.0f, groupContentH = 0.0f;
+	juce::Rectangle<float> groupScrollTrack, groupScrollThumb;
+	bool draggingGroupScroll = false;
+	float groupDragStartY = 0.0f, groupDragStartScroll = 0.0f;
 
 	// The tone list flows into as many columns as listArea's width allows (Alan's request,
 	// 2026-08-28: a single column wasted most of a wide window's width) - row-major (left to

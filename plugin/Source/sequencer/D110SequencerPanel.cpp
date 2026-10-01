@@ -2,6 +2,7 @@
 
 #include <cmath>
 
+#include "../AppModeIcons.h"
 #include "../UiTheme.h"
 
 using d110seq::D110SequencerEngine;
@@ -41,6 +42,10 @@ int noteNameToNumber(const juce::String &nameIn) {
 
 // enabled=false dims the button (used only by UNDO, greyed out while its stack is empty) -
 // distinct from active, which picks the on/off colour pair rather than an alpha.
+// Upper bound for the label font. 13 on a desktop-sized layout; the Android portrait layout
+// (D110SequencerPanel::stackedTransport) raises it for its taller rows via paint().
+float gToggleFontMax = 13.0f;
+
 void paintToggleButton(juce::Graphics &g, juce::Rectangle<float> b, const juce::String &label, bool active,
                         bool enabled = true) {
 	const auto &pal = d110ui::palette();
@@ -53,7 +58,7 @@ void paintToggleButton(juce::Graphics &g, juce::Rectangle<float> b, const juce::
 	g.setColour(fill);
 	g.fillRect(b.reduced(2.0f));
 	g.setColour(text);
-	g.setFont(juce::FontOptions(juce::jlimit(8.0f, 13.0f, b.getHeight() * 0.5f)));
+	g.setFont(juce::FontOptions(juce::jlimit(8.0f, gToggleFontMax, b.getHeight() * 0.5f)));
 	g.drawText(label, b, juce::Justification::centred);
 }
 
@@ -1366,64 +1371,115 @@ void D110SequencerPanel::layout() {
 	auto area = getLocalBounds().toFloat();
 	if (area.getWidth() < 1.0f || area.getHeight() < 1.0f) return;
 
-	auto transport = area.removeFromTop(juce::jmin(40.0f, area.getHeight() * 0.22f));
-	const float tw = transport.getWidth();
-	auto colT = [&](float frac, float widthFrac) {
-		return juce::Rectangle<float>(transport.getX() + tw * frac, transport.getY(),
-		                               tw * widthFrac - 4.0f, transport.getHeight());
-	};
-	stopBounds = colT(0.000f, 0.060f);
-	playBounds = colT(0.060f, 0.060f);
-	recBounds = colT(0.120f, 0.060f);
-	// TEMPO/TIME SIG share the span that used to also carry a standalone TAP TEMPO button
-	// (Alan's request, 2026-08-22: TAP moved into the "Set tempo" dialog itself -
-	// promptForTempo() now has its own Tap button that updates the BPM field live without
-	// closing the dialog - freeing this column for barMenuBounds at the very end instead).
-	tempoBounds = colT(0.185f, 0.100f);
-	timeSigBounds = colT(0.288f, 0.064f);
-	metronomeBounds = colT(0.360f, 0.120f);
-	precountBounds = colT(0.485f, 0.130f);
-	loopBounds = colT(0.620f, 0.090f);
-	barPrevBounds = colT(0.715f, 0.045f);
-	barReadoutBounds = colT(0.763f, 0.148f);
-	barNextBounds = colT(0.915f, 0.040f);
-	// The bar-navigation menu (showBarMenu()) used to only be reachable by right-click/long-
-	// press on barReadoutBounds - this is the same menu, one tap away, in the column TAP's
-	// removal freed up. See onBarMenuButtonExtra's own comment for why a host might also want
-	// this specific button.
-	barMenuBounds = colT(0.958f, 0.042f);
-
-	area.removeFromTop(juce::jmax(2.0f, area.getHeight() * 0.015f));
-
-	// Visual metronome LED strip - one LED per metronome click in the bar, drawn only when
-	// METRO is on (see paint()). Thin, non-interactive, sits right under the transport row.
-	metroLedBounds = area.removeFromTop(juce::jmin(14.0f, area.getHeight() * 0.09f)).reduced(2.0f, 0.0f);
-	area.removeFromTop(juce::jmax(2.0f, area.getHeight() * 0.015f));
-
-	// Second strip: record mode, NEW and the 4 song-slot buttons on the left, Load/Save
-	// right-aligned on the right - all thinner than the busy transport row above.
-	auto fileStrip = area.removeFromTop(juce::jmin(26.0f, area.getHeight() * 0.14f));
-	const float fw = fileStrip.getWidth();
-	auto colF = [&](float frac, float widthFrac) {
-		return juce::Rectangle<float>(fileStrip.getX() + fw * frac, fileStrip.getY(), fw * widthFrac - 4.0f,
-		                               fileStrip.getHeight());
-	};
-	recModeBounds = colF(0.000f, 0.220f);
-	newBounds = colF(0.225f, 0.075f);
-	for (int s = 0; s < D110SequencerEngine::kNumSongSlots; ++s)
-		slotBounds[static_cast<size_t>(s)] = colF(0.310f + float(s) * 0.048f, 0.044f);
-	undoBounds = colF(0.535f, 0.075f);
-	redoBounds = colF(0.615f, 0.075f);
-	// SYNC (see showResyncInfo()'s own comment) is D-110-only - Nonet Sequencer has no live
-	// patch to sync with, so it has no button here at all, and LOAD/SAVE reclaim its space.
-	if (processor.supportsCaptureLivePatch()) {
-		resyncBounds = colF(0.695f, 0.080f);
-		loadBounds = colF(0.780f, 0.100f);
-		saveBounds = colF(0.885f, 0.100f);
+	// Android portrait (a mode-switch button is set and the panel is taller than wide): the
+	// single 13-column transport row is far too fine for a phone held upright, so the same
+	// controls are stacked in three taller rows instead, with a bigger label font:
+	//   1. STOP PLAY REC | BPM | SIG | METRO | PRECOUNT | mode | menu
+	//   (metronome LED strip)
+	//   2. LOOP < BAR > | REC MODE | NEW | song slots 1-4
+	//   3. UNDO REDO | SYNC | LOAD | SAVE
+	stackedTransport = bool(onModeButton) && getHeight() > getWidth();
+	if (stackedTransport) {
+		const float rowH = 46.0f;
+		auto place = [](juce::Rectangle<float> row, std::initializer_list<float> weights,
+		                std::initializer_list<juce::Rectangle<float> *> out) {
+			float total = 0.0f;
+			for (float w : weights) total += w;
+			float x = row.getX();
+			auto o = out.begin();
+			for (float w : weights) {
+				const float cw = row.getWidth() * w / total;
+				**o = juce::Rectangle<float>(x, row.getY(), cw - 4.0f, row.getHeight());
+				x += cw;
+				++o;
+			}
+		};
+		auto row1 = area.removeFromTop(juce::jmin(rowH, area.getHeight() * 0.1f));
+		place(row1, { 0.10f, 0.10f, 0.09f, 0.15f, 0.09f, 0.11f, 0.17f, 0.085f, 0.085f },
+		      { &stopBounds, &playBounds, &recBounds, &tempoBounds, &timeSigBounds, &metronomeBounds,
+		        &precountBounds, &modeBounds, &barMenuBounds });
+		area.removeFromTop(2.0f);
+		metroLedBounds = area.removeFromTop(14.0f).reduced(2.0f, 0.0f);
+		area.removeFromTop(2.0f);
+		auto row2 = area.removeFromTop(juce::jmin(rowH, area.getHeight() * 0.1f));
+		place(row2, { 0.13f, 0.09f, 0.17f, 0.09f, 0.22f, 0.08f, 0.055f, 0.055f, 0.055f, 0.055f },
+		      { &loopBounds, &barPrevBounds, &barReadoutBounds, &barNextBounds, &recModeBounds, &newBounds,
+		        &slotBounds[0], &slotBounds[1], &slotBounds[2], &slotBounds[3] });
+		area.removeFromTop(2.0f);
+		auto row3 = area.removeFromTop(juce::jmin(rowH, area.getHeight() * 0.1f));
+		if (processor.supportsCaptureLivePatch()) {
+			place(row3, { 0.16f, 0.16f, 0.16f, 0.26f, 0.26f },
+			      { &undoBounds, &redoBounds, &resyncBounds, &loadBounds, &saveBounds });
+		} else {
+			resyncBounds = {};
+			place(row3, { 0.20f, 0.20f, 0.30f, 0.30f }, { &undoBounds, &redoBounds, &loadBounds, &saveBounds });
+		}
+		area.removeFromTop(juce::jmax(2.0f, area.getHeight() * 0.015f));
 	} else {
-		resyncBounds = {};
-		loadBounds = colF(0.695f, 0.145f);
-		saveBounds = colF(0.845f, 0.145f);
+		auto transport = area.removeFromTop(juce::jmin(40.0f, area.getHeight() * 0.22f));
+		const float tw = transport.getWidth();
+		// With a mode-switch button (onModeButton, Android only) every column but the last two
+		// squeezes by `sq` to free one more 0.042 slot left of the bar-menu button.
+		const float sq = onModeButton ? 0.954f : 1.0f;
+		auto colA = [&](float frac, float widthFrac) {
+			return juce::Rectangle<float>(transport.getX() + tw * frac, transport.getY(),
+			                               tw * widthFrac - 4.0f, transport.getHeight());
+		};
+		auto colT = [&](float frac, float widthFrac) { return colA(frac * sq, widthFrac * sq); };
+		stopBounds = colT(0.000f, 0.060f);
+		playBounds = colT(0.060f, 0.060f);
+		recBounds = colT(0.120f, 0.060f);
+		// TEMPO/TIME SIG share the span that used to also carry a standalone TAP TEMPO button
+		// (Alan's request, 2026-08-22: TAP moved into the "Set tempo" dialog itself -
+		// promptForTempo() now has its own Tap button that updates the BPM field live without
+		// closing the dialog - freeing this column for barMenuBounds at the very end instead).
+		tempoBounds = colT(0.185f, 0.100f);
+		timeSigBounds = colT(0.288f, 0.064f);
+		metronomeBounds = colT(0.360f, 0.120f);
+		precountBounds = colT(0.485f, 0.130f);
+		loopBounds = colT(0.620f, 0.090f);
+		barPrevBounds = colT(0.715f, 0.045f);
+		barReadoutBounds = colT(0.763f, 0.148f);
+		barNextBounds = colT(0.915f, 0.040f);
+		// The bar-navigation menu (showBarMenu()) used to only be reachable by right-click/long-
+		// press on barReadoutBounds - this is the same menu, one tap away, in the column TAP's
+		// removal freed up. See onBarMenuButtonExtra's own comment for why a host might also want
+		// this specific button.
+		barMenuBounds = colA(0.958f, 0.042f);
+		modeBounds = onModeButton ? colA(0.915f, 0.042f) : juce::Rectangle<float>();
+
+		area.removeFromTop(juce::jmax(2.0f, area.getHeight() * 0.015f));
+
+		// Visual metronome LED strip - one LED per metronome click in the bar, drawn only when
+		// METRO is on (see paint()). Thin, non-interactive, sits right under the transport row.
+		metroLedBounds = area.removeFromTop(juce::jmin(14.0f, area.getHeight() * 0.09f)).reduced(2.0f, 0.0f);
+		area.removeFromTop(juce::jmax(2.0f, area.getHeight() * 0.015f));
+
+		// Second strip: record mode, NEW and the 4 song-slot buttons on the left, Load/Save
+		// right-aligned on the right - all thinner than the busy transport row above.
+		auto fileStrip = area.removeFromTop(juce::jmin(26.0f, area.getHeight() * 0.14f));
+		const float fw = fileStrip.getWidth();
+		auto colF = [&](float frac, float widthFrac) {
+			return juce::Rectangle<float>(fileStrip.getX() + fw * frac, fileStrip.getY(), fw * widthFrac - 4.0f,
+			                               fileStrip.getHeight());
+		};
+		recModeBounds = colF(0.000f, 0.220f);
+		newBounds = colF(0.225f, 0.075f);
+		for (int s = 0; s < D110SequencerEngine::kNumSongSlots; ++s)
+			slotBounds[static_cast<size_t>(s)] = colF(0.310f + float(s) * 0.048f, 0.044f);
+		undoBounds = colF(0.535f, 0.075f);
+		redoBounds = colF(0.615f, 0.075f);
+		// SYNC (see showResyncInfo()'s own comment) is D-110-only - Nonet Sequencer has no live
+		// patch to sync with, so it has no button here at all, and LOAD/SAVE reclaim its space.
+		if (processor.supportsCaptureLivePatch()) {
+			resyncBounds = colF(0.695f, 0.080f);
+			loadBounds = colF(0.780f, 0.100f);
+			saveBounds = colF(0.885f, 0.100f);
+		} else {
+			resyncBounds = {};
+			loadBounds = colF(0.695f, 0.145f);
+			saveBounds = colF(0.845f, 0.145f);
+		}
 	}
 	area.removeFromTop(juce::jmax(2.0f, area.getHeight() * 0.015f));
 
@@ -1491,6 +1547,7 @@ void D110SequencerPanel::paint(juce::Graphics &g) {
 	g.fillAll(pal.panelBg);
 	auto &eng = engine();
 
+	gToggleFontMax = stackedTransport ? 17.0f : 13.0f;
 	paintToggleButton(g, stopBounds, "STOP", !eng.isPlaying());
 	paintToggleButton(g, playBounds, "PLAY", eng.isPlaying() && !eng.isRecording());
 	paintToggleButton(g, recBounds, "REC", eng.isRecording());
@@ -1507,6 +1564,8 @@ void D110SequencerPanel::paint(juce::Graphics &g) {
 	paintToggleButton(g, barPrevBounds, "<", false);
 	paintToggleButton(g, barNextBounds, ">", false);
 	paintToggleButton(g, barMenuBounds, juce::String::fromUTF8("\xe2\x98\xb0"), false); // U+2630
+	if (onModeButton && modeButtonMode)
+		d110ui::paintAppModeButton(g, modeBounds, d110ui::AppMode(modeButtonMode()));
 	paintToggleButton(g, barReadoutBounds,
 	                   "BAR " + juce::String(eng.getCurrentBar()) + "/" + juce::String(eng.getBarCount()),
 	                   eng.isPrecounting());
@@ -1829,6 +1888,7 @@ void D110SequencerPanel::mouseDown(const juce::MouseEvent &e) {
 		return;
 	}
 	if (barMenuBounds.contains(p)) { showBarMenu(); return; }
+	if (onModeButton && modeBounds.contains(p)) { onModeButton(); return; }
 	if (processor.supportsExtraTracks() && eng.getExtraTracksEnabled()) {
 		// layout(), not just repaint(): rows[] only gets the OTHER page's bounds computed
 		// once layout() actually runs over it - a bare repaint() would paint page 1's rows

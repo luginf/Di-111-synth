@@ -72,7 +72,10 @@ int main(int argc, char **argv) {
 	// нижней границы constrainer'а (900), а не только у окна по умолчанию.
 	const int width = (argc > 3) ? std::atoi(argv[3]) : 1500;
 	const float scale = float(width) / float(D110Panel::kRefW);
-	const int height = int(D110AudioProcessorEditor::kPaneRefH * scale + 0.5f);
+	// D110_SHOT_HEIGHT overrides the pane height, to check the short-window layouts (scrollbars).
+	const int height = std::getenv("D110_SHOT_HEIGHT") != nullptr
+	                       ? std::atoi(std::getenv("D110_SHOT_HEIGHT"))
+	                       : int(D110AudioProcessorEditor::kPaneRefH * scale + 0.5f);
 
 	// Optional 5th argument, "light" - so the THEME toggle (Utility tab) can be checked
 	// headlessly the same way every other bit of this UI is, instead of just by eye.

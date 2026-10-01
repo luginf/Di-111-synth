@@ -46,6 +46,10 @@ public:
 	// whatever this callback appends. Unset (the desktop) there is no such button.
 	std::function<void(juce::PopupMenu &)> onBarMenuButtonExtra;
 
+	// Android app only - see D110SequencerPanel::onModeButton.
+	std::function<void()> onModeButton;
+	std::function<int()> modeButtonMode; // d110ui::AppMode as int, for the icon
+
 private:
 	void timerCallback() override;
 	void scrollBarMoved(juce::ScrollBar *, double newRangeStart) override;
@@ -59,6 +63,7 @@ private:
 		std::function<bool()> enabled; // null = always enabled
 		std::function<void()> onClick;
 		std::function<void()> onRightClick; // null = none
+		std::function<void(juce::Graphics &, juce::Rectangle<float>)> customPaint; // null = text label
 	};
 
 	void buildLayout();
@@ -167,6 +172,8 @@ private:
 	bool viewInitialised = false;
 	int lastBar = -1;
 	float rowH = 14.0f;           // see setRowHeight()
+	bool stackedTransport = false; // Android portrait two-row transport, see buildLayout()
+	bool builtWithModeButton = false;
 	bool builtWithBarMenu = false; // whether the bar-menu button existed when the layout was last built
 	int longPressToken = 0;
 	juce::Point<float> longPressStart;

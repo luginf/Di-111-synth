@@ -5,14 +5,21 @@ ecosystem). Same shape as the desktop Standalone app / Nonet Sequencer: one app,
 wrapper. Works on real hardware; not yet packaged for a store release.
 
 CMake target `D110Android`, Gradle module `android/app`, app id `com.d110emulator.android`,
-launcher label "d110".
+launcher label "Di-111".
 
 ## What's in it
 
 - The real firmware/native core, the real photographed panel, the on-screen keyboard (1 or 2
   octaves), and the full D-20-style sequencer (strip, retro D-pad and piano-roll views, see Options) - all shared with the
   desktop plugin. No extended editor drawer and no memory card slot.
-- A single hamburger menu (☰) for everything the desktop build splits across Load/Options.
+- A single hamburger menu (☰) for everything the desktop build splits across Load/Options,
+  including Load/Play/Stop of a MIDI file and a direct pick of the view.
+- Three views - **Front Panel**, **Sequencer**, **Soundbanks** - switched by the button just left
+  of the ☰, which cycles through them in that order (its icon shows the current view). The same
+  button and ☰ look identical in every view.
+- In portrait the sequencer's transport is stacked in larger rows (strip view: STOP/PLAY/REC, BPM,
+  signature, METRO, PRECOUNT + mode + ☰ on top, the metronome LEDs, then LOOP/bar/REC mode/NEW/songs,
+  then UNDO/REDO/SYNC/LOAD/SAVE; piano-roll view: two rows). Landscape keeps the single row.
 - Loading a MIDI file to play, and importing a SysEx/MIDI bank (`.syx` or SysEx events embedded
   in a `.mid`) to populate the internal Tone Memory (Bank I).
 - The Soundbanks tone browser (hamburger menu -> **Soundbanks...**) - see

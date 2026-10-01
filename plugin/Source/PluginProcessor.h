@@ -89,7 +89,7 @@ public:
 	juce::AudioProcessorEditor *createEditor() override;
 	bool hasEditor() const override { return true; }
 
-	const juce::String getName() const override { return "D-110 Emulator"; }
+	const juce::String getName() const override { return "Di-111"; }
 	bool acceptsMidi() const override { return true; }
 	bool producesMidi() const override { return false; }
 	bool isMidiEffect() const override { return false; }

@@ -38,6 +38,15 @@ endif()
 # test probes.
 option(D110_BUILD_MAME_BACKEND "Build the MAME-backed D110Emulator plugin and probes" OFF)
 
+# Linux releases also ship LV2 (JUCE's own format) and CLAP (via clap-juce-extensions, wired up
+# right after the D110EmulatorNative target below). Only the native product gets them - the dormant
+# MAME backend and the D-50 target keep D110_FORMATS.
+set(D110_NATIVE_FORMATS ${D110_FORMATS})
+if(UNIX AND NOT APPLE)
+    list(APPEND D110_NATIVE_FORMATS LV2)
+endif()
+option(D110_BUILD_CLAP "Also build a CLAP plugin of the native product (Linux)" ON)
+
 if(D110_BUILD_MAME_BACKEND)
     include("${CMAKE_CURRENT_SOURCE_DIR}/mame.cmake")
 endif()
@@ -262,13 +271,19 @@ juce_add_plugin(D110EmulatorNative
     ${D110_VST3_COPY_DIR_ARGS}
     PLUGIN_MANUFACTURER_CODE Manu
     PLUGIN_CODE Dvsn
-    FORMATS ${D110_FORMATS}
+    FORMATS ${D110_NATIVE_FORMATS}
+    LV2URI "https://github.com/luginf/d110-vst-emulator/plugins/di111"
     # Not "D-110 Emulator (Native)" and not parenthesised in general: parentheses in the
     # product name end up in the .vst3 bundle's own path, and CMake's Unix Makefiles
     # generator doesn't shell-escape them in the generated copy/remove recipes - `(` reaches
     # /bin/sh unquoted and breaks the build. Spaces are escaped there; parens are not, on
     # Linux. Windows never hit this.
-    PRODUCT_NAME "D-110 Emulator"
+    # Renamed "Di-111" 2026-10-01 (Alan's request): the Standalone binary, its window title and
+    # the .vst3 bundle name. Folder names (D-110 Data, app-data "D-110 Emulator") are string
+    # literals in PluginProcessor.cpp, unaffected; only the Standalone's settings file moves
+    # (~/.config/Di-111.settings, previously "D-110 Emulator.settings").
+    PRODUCT_NAME "Di-111"
+    PLUGIN_NAME "Di-111"
     # The D-110 front panel's own "D-110" wordmark, vectorised - see docs/app_icon.svg's own
     # comment. Used for the Standalone window/taskbar icon (and the VST3 bundle icon on
     # platforms that show one); Android's separate launcher icon
@@ -277,6 +292,16 @@ juce_add_plugin(D110EmulatorNative
     ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/../docs/app_icon.png"
     ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/../docs/app_icon.png"
 )
+
+if(UNIX AND NOT APPLE AND D110_BUILD_CLAP)
+    FetchContent_Declare(clap-juce-extensions
+        GIT_REPOSITORY https://github.com/free-audio/clap-juce-extensions.git
+        GIT_TAG main)
+    FetchContent_MakeAvailable(clap-juce-extensions)
+    clap_juce_extensions_plugin(TARGET D110EmulatorNative
+        CLAP_ID "com.luginf.di111"
+        CLAP_FEATURES instrument synthesizer)
+endif()
 
 target_sources(D110EmulatorNative PRIVATE
     Source/PluginProcessor.cpp

@@ -1,6 +1,9 @@
-# D-110 VST Emulator
+# D-110 VST Emulator (Di-111)
 
-A VST3 plugin that emulates the Roland D-110 multi-timbral sound module.
+A VST3 / AU / Standalone plugin that emulates the Roland D-110 multi-timbral sound module. The
+built application is called **Di-111** (the Standalone binary, its window title and the plugin
+bundle); the repository keeps its historical name. Linux releases also ship LV2, CLAP and AppImage
+builds, and there is an Android app (`docs/android.md`).
 
 ![screenshot](docs/D-110_vst01.jpg)
 

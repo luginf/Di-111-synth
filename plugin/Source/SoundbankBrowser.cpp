@@ -776,21 +776,48 @@ void SoundbankBrowser::resized() {
 	// a single letter, and the two most likely to be reached for first) get their own full-width
 	// row each, above the 3-column letter grid, rather than being squeezed into one narrow
 	// column cell where "FAVORITES (n)" doesn't fit.
-	groupBounds.clear();
-	auto stripArea = groupStripArea;
-	const float wideRowH = 26.0f;
-	groupBounds.push_back(stripArea.removeFromTop(wideRowH)); // ALL
-	groupBounds.push_back(stripArea.removeFromTop(wideRowH)); // FAVORITES
+	layoutGroups();
+}
 
+void SoundbankBrowser::layoutGroups() {
+	groupBounds.clear();
+	// ALL and FAVORITES keep their full-width rows; the letters wrap column-major under them. Rows
+	// never shrink below kMinGroupRowH - a short window scrolls instead of overlapping labels.
+	constexpr float kMinGroupRowH = 22.0f;
+	constexpr float kTrackW = 8.0f;
+	const float wideRowH = 26.0f;
 	const int letterCount = groupKeys.size() - 2; // everything after ALL/FAVORITES
-	const int rows = (letterCount + kGroupColumns - 1) / kGroupColumns;
+	const int rows = juce::jmax(1, (letterCount + kGroupColumns - 1) / kGroupColumns);
+
+	auto stripArea = groupStripArea;
+	const float idealRowH = juce::jmin(28.0f, (stripArea.getHeight() - 2.0f * wideRowH) / float(rows));
+	const float groupRowH = juce::jmax(kMinGroupRowH, idealRowH);
+	groupContentH = 2.0f * wideRowH + float(rows) * groupRowH;
+	const bool scrolls = groupContentH > stripArea.getHeight() + 0.5f;
+	if (scrolls) stripArea.removeFromRight(kTrackW + 2.0f);
+	const float maxScroll = scrolls ? groupContentH - groupStripArea.getHeight() : 0.0f;
+	groupScroll = juce::jlimit(0.0f, maxScroll, groupScroll);
+
+	const float x0 = stripArea.getX(), y0 = stripArea.getY() - groupScroll;
+	groupBounds.push_back({ x0, y0, stripArea.getWidth(), wideRowH });                 // ALL
+	groupBounds.push_back({ x0, y0 + wideRowH, stripArea.getWidth(), wideRowH });      // FAVORITES
 	const float colW = stripArea.getWidth() / float(kGroupColumns);
-	const float groupRowH = juce::jmin(28.0f, stripArea.getHeight() / float(juce::jmax(1, rows)));
 	for (int i = 0; i < letterCount; ++i) {
 		const int col = i / rows;
 		const int row = i % rows;
-		groupBounds.push_back({ stripArea.getX() + float(col) * colW,
-		                         stripArea.getY() + float(row) * groupRowH, colW, groupRowH });
+		groupBounds.push_back({ x0 + float(col) * colW, y0 + 2.0f * wideRowH + float(row) * groupRowH, colW,
+		                         groupRowH });
+	}
+
+	if (scrolls) {
+		groupScrollTrack = { groupStripArea.getRight() - kTrackW, groupStripArea.getY(), kTrackW,
+		                     groupStripArea.getHeight() };
+		const float thumbH = juce::jmax(24.0f, groupStripArea.getHeight() * groupStripArea.getHeight() / groupContentH);
+		const float thumbY = groupScrollTrack.getY()
+		                   + (groupScrollTrack.getHeight() - thumbH) * (groupScroll / maxScroll);
+		groupScrollThumb = { groupScrollTrack.getX(), thumbY, kTrackW, thumbH };
+	} else {
+		groupScrollTrack = groupScrollThumb = {};
 	}
 }
 
@@ -830,6 +857,8 @@ void SoundbankBrowser::paint(juce::Graphics &g) {
 	}
 
 	g.setFont(juce::Font(juce::FontOptions(13.0f)));
+	g.saveState();
+	g.reduceClipRegion(groupStripArea.getSmallestIntegerContainer());
 	for (int i = 0; i < groupKeys.size() && i < int(groupBounds.size()); ++i) {
 		const auto &b = groupBounds[size_t(i)];
 		const bool selected = groupKeys[i] == selectedGroup;
@@ -843,6 +872,13 @@ void SoundbankBrowser::paint(juce::Graphics &g) {
 		                                                : db.countForLetter(groupKeys[i]);
 		g.drawText(groupKeys[i] + " (" + juce::String(count) + ")", b.reduced(4.0f, 0.0f),
 		           juce::Justification::centredLeft);
+	}
+	g.restoreState();
+	if (!groupScrollTrack.isEmpty()) {
+		g.setColour(pal.box);
+		g.fillRoundedRectangle(groupScrollTrack, 3.0f);
+		g.setColour(pal.boxBorder.brighter(0.4f));
+		g.fillRoundedRectangle(groupScrollThumb.reduced(1.0f), 3.0f);
 	}
 
 	g.setColour(pal.box);
@@ -942,8 +978,21 @@ void SoundbankBrowser::mouseDown(const juce::MouseEvent &e) {
 		return;
 	}
 
+	if (!groupScrollTrack.isEmpty() && groupScrollTrack.contains(pos)) {
+		if (groupScrollThumb.contains(pos)) {
+			draggingGroupScroll = true;
+			groupDragStartY = pos.y;
+			groupDragStartScroll = groupScroll;
+		} else {
+			groupScroll += (pos.y < groupScrollThumb.getY() ? -1.0f : 1.0f) * groupStripArea.getHeight() * 0.8f;
+			layoutGroups();
+			repaint();
+		}
+		return;
+	}
+
 	for (int i = 0; i < int(groupBounds.size()); ++i)
-		if (groupBounds[size_t(i)].contains(pos)) {
+		if (groupStripArea.contains(pos) && groupBounds[size_t(i)].contains(pos)) {
 			pickGroup(groupKeys[i]);
 			return;
 		}
@@ -1008,6 +1057,15 @@ void SoundbankBrowser::handleLongPress(int gestureId, d110bank::Entry entry) {
 void SoundbankBrowser::mouseDrag(const juce::MouseEvent &e) {
 	const auto pos = e.position;
 
+	if (draggingGroupScroll) {
+		const float maxScroll = juce::jmax(1.0f, groupContentH - groupStripArea.getHeight());
+		const float usable = juce::jmax(1.0f, groupScrollTrack.getHeight() - groupScrollThumb.getHeight());
+		groupScroll = groupDragStartScroll + (pos.y - groupDragStartY) * (maxScroll / usable);
+		layoutGroups();
+		repaint();
+		return;
+	}
+
 	if (draggingThumb) {
 		const int totalGridRows = (int(filtered.size()) + listColumns - 1) / listColumns;
 		const int maxScroll = juce::jmax(0, totalGridRows - visibleGridRows);
@@ -1033,6 +1091,10 @@ void SoundbankBrowser::mouseDrag(const juce::MouseEvent &e) {
 }
 
 void SoundbankBrowser::mouseUp(const juce::MouseEvent &e) {
+	if (draggingGroupScroll) {
+		draggingGroupScroll = false;
+		return;
+	}
 	if (draggingThumb) {
 		draggingThumb = false;
 		repaint();
@@ -1099,7 +1161,15 @@ void SoundbankBrowser::auditionEntryToPart(const d110bank::Entry &entry, int par
 	repaint();
 }
 
-void SoundbankBrowser::mouseWheelMove(const juce::MouseEvent &, const juce::MouseWheelDetails &wheel) {
+void SoundbankBrowser::mouseWheelMove(const juce::MouseEvent &e, const juce::MouseWheelDetails &wheel) {
+	if (groupStripArea.contains(e.position)) {
+		if (!groupScrollTrack.isEmpty()) {
+			groupScroll -= wheel.deltaY * 120.0f;
+			layoutGroups();
+			repaint();
+		}
+		return;
+	}
 	listScrollRow -= juce::roundToInt(wheel.deltaY * 4.0f);
 	listScrollRow = juce::jmax(0, listScrollRow);
 	repaint();

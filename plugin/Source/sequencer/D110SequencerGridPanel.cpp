@@ -4,6 +4,7 @@
 #include <cmath>
 #include <iterator>
 
+#include "../AppModeIcons.h"
 #include "../UiTheme.h"
 
 using d110seq::D110SequencerEngine;
@@ -61,6 +62,9 @@ juce::String trackLongLabel(const D110SequencerEngine &eng, int t) {
 	return "TRACK " + juce::String(t + 1);
 }
 
+// 13 normally; raised by paint() for the Android portrait layout's taller rows.
+float gButtonFontMax = 13.0f;
+
 void paintButton(juce::Graphics &g, juce::Rectangle<float> b, const juce::String &label, bool active, bool enabled) {
 	const auto &pal = d110ui::palette();
 	auto fill = active ? pal.seqActiveFill : pal.seqInactiveFill;
@@ -74,7 +78,7 @@ void paintButton(juce::Graphics &g, juce::Rectangle<float> b, const juce::String
 	g.setColour(text);
 	// Shrink the text to fit a narrow button (a phone in portrait squeezes the transport row's
 	// fractional columns to a few dozen pixels) instead of letting it truncate to "S...".
-	float size = juce::jlimit(8.0f, 13.0f, b.getHeight() * 0.5f);
+	float size = juce::jlimit(8.0f, gButtonFontMax, b.getHeight() * 0.5f);
 	const float avail = b.getWidth() - 8.0f;
 	const float wide = float(juce::GlyphArrangement::getStringWidthInt(juce::Font(juce::FontOptions(size)), label));
 	if (wide > avail && avail > 0.0f) size = juce::jmax(6.5f, size * avail / wide);
@@ -158,20 +162,53 @@ void D110SequencerGridPanel::buildLayout() {
 	// the normal view has them when switching between the two. Only the bar-menu slot at the far
 	// right is left empty.
 	auto full = getLocalBounds().toFloat();
-	auto transport = full.removeFromTop(juce::jmin(40.0f, full.getHeight() * 0.22f));
+	// Android portrait (mode-switch button set, panel taller than wide): two taller rows instead of
+	// one fine 13-column row - see D110SequencerPanel::layout()'s stacked branch for the same idea.
+	//   1. STOP PLAY REC | BPM | SIG | METRO | PRECOUNT | mode | menu
+	//   2. LOOP < BAR >
+	stackedTransport = bool(onModeButton) && getHeight() > getWidth();
+	auto transport = full.removeFromTop(stackedTransport ? 46.0f : juce::jmin(40.0f, full.getHeight() * 0.22f));
+	juce::Rectangle<float> transport2;
+	if (stackedTransport) {
+		full.removeFromTop(2.0f);
+		transport2 = full.removeFromTop(46.0f);
+	}
 	const float tw = transport.getWidth();
-	auto colT = [&](float frac, float widthFrac) {
+	// With a mode-switch button (onModeButton, Android only) every column but the last two
+	// squeezes by `sq` to free one more 0.042 slot left of the bar-menu button.
+	const float sq = onModeButton ? 0.954f : 1.0f;
+	auto colA = [&](float frac, float widthFrac) {
 		return juce::Rectangle<float>(transport.getX() + tw * frac, transport.getY(), tw * widthFrac - 4.0f,
 		                               transport.getHeight());
 	};
-	addButton(colT(0.000f, 0.060f), [] { return juce::String("STOP"); },
+	auto colT = [&](float frac, float widthFrac) { return colA(frac * sq, widthFrac * sq); };
+	// Stacked layout cells, indexed by the id each button passes to P() below.
+	juce::Rectangle<float> cell[13];
+	if (stackedTransport) {
+		auto fill = [](juce::Rectangle<float> row, std::initializer_list<std::pair<int, float>> cols,
+		               juce::Rectangle<float> *out) {
+			float total = 0.0f;
+			for (auto &c : cols) total += c.second;
+			float x = row.getX();
+			for (auto &c : cols) {
+				const float cw = row.getWidth() * c.second / total;
+				out[c.first] = juce::Rectangle<float>(x, row.getY(), cw - 4.0f, row.getHeight());
+				x += cw;
+			}
+		};
+		fill(transport, { { 0, 0.10f }, { 1, 0.10f }, { 2, 0.09f }, { 3, 0.15f }, { 4, 0.09f }, { 5, 0.11f },
+		                  { 6, 0.17f }, { 11, 0.085f }, { 12, 0.085f } }, cell);
+		fill(transport2, { { 7, 0.20f }, { 8, 0.14f }, { 9, 0.32f }, { 10, 0.14f } }, cell);
+	}
+	auto P = [&](int id, float frac, float widthFrac) { return stackedTransport ? cell[id] : colT(frac, widthFrac); };
+	addButton(P(0, 0.000f, 0.060f), [] { return juce::String("STOP"); },
 	          [this] { engine().stop(); processor.midiPanic(); }, [this] { return !engine().isPlaying(); },
 	          {}, [this] { processor.midiPanic(); });
-	addButton(colT(0.060f, 0.060f), [] { return juce::String("PLAY"); }, [this] { engine().play(); },
+	addButton(P(1, 0.060f, 0.060f), [] { return juce::String("PLAY"); }, [this] { engine().play(); },
 	          [this] { return engine().isPlaying() && !engine().isRecording(); });
 	// REC records into the track selected here (a normal panel arms tracks by hand; the grid
 	// has no ARM button, so the selected track is the armed one).
-	addButton(colT(0.120f, 0.060f), [] { return juce::String("REC"); },
+	addButton(P(2, 0.120f, 0.060f), [] { return juce::String("REC"); },
 	          [this] {
 		          auto &e = engine();
 		          if (e.isRecording()) { e.stopRecording(); return; }
@@ -179,23 +216,23 @@ void D110SequencerGridPanel::buildLayout() {
 		          e.startRecording();
 	          },
 	          [this] { return engine().isRecording(); });
-	tempoBounds = colT(0.185f, 0.100f);
-	addButton(colT(0.288f, 0.064f),
+	tempoBounds = P(3, 0.185f, 0.100f);
+	addButton(P(4, 0.288f, 0.064f),
 	          [this] {
 		          return juce::String(engine().getTimeSigNumerator()) + "/" + juce::String(engine().getTimeSigDenominator());
 	          },
 	          [this] { cycleTimeSignature(); }, {}, {}, [this] { showTimeSignatureMenu(); });
-	addButton(colT(0.360f, 0.120f), [] { return juce::String("METRO"); },
+	addButton(P(5, 0.360f, 0.120f), [] { return juce::String("METRO"); },
 	          [this] { engine().setMetronomeEnabled(!engine().getMetronomeEnabled()); },
 	          [this] { return engine().getMetronomeEnabled(); });
-	addButton(colT(0.485f, 0.130f),
+	addButton(P(6, 0.485f, 0.130f),
 	          [this] {
 		          const int bars = engine().getPrecountBars();
 		          return bars == 0 ? juce::String("PRECOUNT OFF") : "PRECOUNT " + juce::String(bars);
 	          },
 	          [this] { engine().setPrecountBars((engine().getPrecountBars() + 1) % 3); },
 	          [this] { return engine().getPrecountBars() > 0; });
-	addButton(colT(0.620f, 0.090f),
+	addButton(P(7, 0.620f, 0.090f),
 	          [this] {
 		          switch (engine().getLoopMode()) {
 			          case d110seq::LoopMode::off: return juce::String("LOOP OFF");
@@ -214,11 +251,11 @@ void D110SequencerGridPanel::buildLayout() {
 	          },
 	          [this] { return engine().getLoopMode() != d110seq::LoopMode::off; });
 	// Same as the normal panel: a click steps one bar, a right-click jumps to the first/last bar.
-	addButton(colT(0.715f, 0.045f), [] { return juce::String("<"); },
+	addButton(P(8, 0.715f, 0.045f), [] { return juce::String("<"); },
 	          [this] { engine().gotoBar(juce::jmax(1, engine().getCurrentBar() - 1)); }, {}, {},
 	          [this] { engine().gotoBar(1); });
-	barReadoutBounds = colT(0.763f, 0.148f);
-	addButton(colT(0.915f, 0.040f), [] { return juce::String(">"); },
+	barReadoutBounds = P(9, 0.763f, 0.148f);
+	addButton(P(10, 0.915f, 0.040f), [] { return juce::String(">"); },
 	          [this] {
 		          auto &e = engine();
 		          // One empty bar past the end is reachable, so a song can be extended from here.
@@ -226,8 +263,15 @@ void D110SequencerGridPanel::buildLayout() {
 	          },
 	          {}, {}, [this] { engine().gotoBar(engine().getBarCount()); });
 	builtWithBarMenu = bool(onBarMenuButtonExtra);
+	builtWithModeButton = bool(onModeButton);
+	if (builtWithModeButton) {
+		addButton(stackedTransport ? cell[11] : colA(0.915f, 0.042f), [] { return juce::String(); }, [this] { onModeButton(); });
+		buttons.back().customPaint = [this](juce::Graphics &g, juce::Rectangle<float> b) {
+			d110ui::paintAppModeButton(g, b, d110ui::AppMode(modeButtonMode ? modeButtonMode() : 1));
+		};
+	}
 	if (builtWithBarMenu)
-		addButton(colT(0.958f, 0.042f), [] { return juce::String::fromUTF8("\xe2\x98\xb0"); }, // U+2630
+		addButton(stackedTransport ? cell[12] : colA(0.958f, 0.042f), [] { return juce::String::fromUTF8("\xe2\x98\xb0"); }, // U+2630
 		          [this] { showBarMenu(); });
 
 	auto area = full.reduced(kPad, 2.0f);
@@ -604,7 +648,9 @@ void D110SequencerGridPanel::timerCallback() {
 	if (!isShowing()) return;
 	auto &eng = engine();
 	syncRowHeightFromHost();
-	if (eng.activeTrackCount() != builtTrackCount || bool(onBarMenuButtonExtra) != builtWithBarMenu) {
+	if (eng.activeTrackCount() != builtTrackCount || bool(onBarMenuButtonExtra) != builtWithBarMenu
+	    || bool(onModeButton) != builtWithModeButton
+	    || stackedTransport != (bool(onModeButton) && getHeight() > getWidth())) {
 		if (selTrack >= eng.activeTrackCount()) selTrack = 0;
 		buildLayout();
 	}
@@ -623,8 +669,11 @@ void D110SequencerGridPanel::paint(juce::Graphics &g) {
 	auto &eng = engine();
 	g.fillAll(pal.panelBg);
 
-	for (const auto &b : buttons)
-		paintButton(g, b.bounds, b.label(), b.active && b.active(), !b.enabled || b.enabled());
+	gButtonFontMax = stackedTransport ? 17.0f : 13.0f;
+	for (const auto &b : buttons) {
+		if (b.customPaint) b.customPaint(g, b.bounds);
+		else paintButton(g, b.bounds, b.label(), b.active && b.active(), !b.enabled || b.enabled());
+	}
 
 	// Tempo (drag / wheel / right-click) and the bar readout, styled like every other button.
 	paintButton(g, tempoBounds, juce::String(eng.getTempo(), 1) + " BPM", false, true);

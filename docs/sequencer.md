@@ -280,3 +280,14 @@ recording modes, loop/punch, bar editing, step recording, undo, song slots and t
 note primitives (including editing a note while it sounds).
 `plugin/sequencer_state_probe.cpp` round-trips the engine's full state and checks it comes back
 identical.
+
+
+## Importing a MIDI file written for a re-channelled D-110
+
+Files exported from a D-110 (or by this app) start each track with the SysEx that remaps that
+Part's MIDI channel. On import (D-110 plugin) each track's Program Change / Volume / Pan are
+therefore sent on the channel that SysEx establishes, not on the channel the Part has *right now*,
+and the SysEx is replayed first. Display Message SysEx in a file is skipped: it is cosmetic, and a
+message still pending when the instrument is saved used to leave the firmware answering to a
+different SysEx device ID on the next start (see `.claude/dev-notes/architecture.md`). Replayed
+writes use the device ID the firmware currently answers to (its *Exclu Unit#*).

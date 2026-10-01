@@ -543,11 +543,31 @@ private:
 	// (the space its sections actually consumed, regardless of scroll position); the two
 	// rectangles are the track/thumb hit regions layoutUtility() leaves behind for
 	// mouseDown/mouseDrag, empty when everything already fits without scrolling.
+	// The same pixel scroll also serves the fixed-layout tabs whose content can run taller than the
+	// drawer when the window is short (PARTS, TONE, SYSTEM, PARTS OF PATCH): they are laid out in
+	// a tall virtual rectangle (see layout()) and the result is shifted up by this offset. It
+	// resets to 0 whenever the tab or sub-tab changes.
 	float utilityScrollOffset = 0.0f;
 	float utilityContentHeight = 0.0f;
 	juce::Rectangle<float> utilityScrollTrack, utilityScrollThumb;
 	bool draggingUtilityScroll = false;
 	float utilityScrollDragStartY = 0.0f, utilityScrollDragStartOffset = 0.0f;
+
+	// True for the tabs scrolled in raw pixels through utilityScrollOffset: UTILITY itself and the
+	// fixed-layout tabs listed above.
+	bool pixelScrollTab() const;
+	bool usesPixelScroll() const { return tab == Tab::Utility || pixelScrollTab(); }
+
+	// The row-paged tabs (RHYTHM, ALL PATCHES, TIMBRES, TONES) scroll a window of rows with the wheel;
+	// this adds a visible scrollbar for the same variable. rowScrollVar is set by the tab's layout
+	// (null = nothing to scroll), the rest is derived in layout().
+	int *rowScrollVar = nullptr;
+	int rowScrollMax = 0;      // highest value of *rowScrollVar
+	int rowScrollVisible = 1;  // how many units one screen shows (the page size)
+	juce::Rectangle<float> rowScrollTrack, rowScrollThumb;
+	bool draggingRowScroll = false;
+	float rowScrollDragStartY = 0.0f;
+	int rowScrollDragStartValue = 0;
 
 	juce::Rectangle<float> tableArea;
 	juce::Rectangle<float> contentArea;   // for tabs that are painted as a whole
@@ -623,6 +643,8 @@ public:
 	// title bar to the OS's native one, to match Nonet Sequencer's window (Alan's request) -
 	// see the .cpp for why this is done here rather than at window construction.
 	void parentHierarchyChanged() override;
+	// Standalone only: sets the window/taskbar icon - see the .cpp.
+	void applyWindowIcon();
 
 	// Re-read the unit with both halves at once - panel and drawer. Needed by the whole-editor
 	// snapshot, which has neither a window nor a message loop to run their timers.

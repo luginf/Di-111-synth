@@ -19,6 +19,7 @@
 
 #include "Source/PluginProcessor.h"
 #include "Source/PluginEditor.h"
+#include "Source/AppModeIcons.h"
 #include "Source/D110Keyboard.h"
 #include "Source/SoundbankBrowser.h"
 #include "Source/UiTheme.h"
@@ -112,22 +113,20 @@ public:
 		pianoRollSeq.onBarMenuButtonExtra = [this](juce::PopupMenu &m) { buildAppMenu(m); };
 		addAndMakeVisible(keyboard);
 
-		playButton.setButtonText("Play");
-		playButton.onClick = [this] { togglePlayPause(); };
-		addAndMakeVisible(playButton);
-
-		stopButton.setButtonText("Stop");
-		stopButton.onClick = [this] { stopPlayback(); };
-		addAndMakeVisible(stopButton);
-
-		// "Load MIDI file..." and the octave Options both moved in here (Alan's request,
-		// 2026-08-22): landscape has little enough vertical room that even one dedicated
-		// button per action was squeezing the panel/keyboard below it. Play/Stop stay as
-		// real buttons since those are what gets pressed constantly during playback; the
-		// other two are one-tap-then-done settings, exactly what a menu is for.
-		menuButton.setButtonText(juce::String::fromUTF8("\xe2\x98\xb0")); // U+2630 TRIGRAM FOR HEAVEN ("hamburger")
+		// The hamburger and the mode switch are drawn in the sequencer's own button style
+		// (AppModeIcons.h) so they look the same in every view, including the two sequencer
+		// panels that carry their own copies in their transport rows (onModeButton below).
+		// Play/Stop for "Load MIDI file..." playback used to be real buttons in the front panel's
+		// top row; they live in the hamburger menu now (Alan's request, 2026-10-01), right under
+		// "Load MIDI file...".
 		menuButton.onClick = [this] { showMainMenu(); };
 		addAndMakeVisible(menuButton);
+		modeButton.onClick = [this] { cycleMode(); };
+		addAndMakeVisible(modeButton);
+		gridSeq.onModeButton = [this] { cycleMode(); };
+		gridSeq.modeButtonMode = [this] { return int(currentMode()); };
+		pianoRollSeq.onModeButton = [this] { cycleMode(); };
+		pianoRollSeq.modeButtonMode = [this] { return int(currentMode()); };
 
 		statusLabel.setJustificationType(juce::Justification::centredLeft);
 		statusLabel.setColour(juce::Label::textColourId, juce::Colours::white);
@@ -281,93 +280,40 @@ public:
 		// (Also true for the piano roll view: it has the same bar-menu button, fed by pianoRollSeq.onBarMenuButtonExtra.)
 		const bool inGridSequencer = showingSequencer && !processor.getSequencerRetroMode();
 		const bool inRetroSequencer = showingSequencer && processor.getSequencerRetroMode();
-		// Soundbanks keeps the hamburger (its only way back to Panel view, same reasoning as
-		// retro sequencer above) but hides Play/Stop/status like both sequencer views do - that
-		// row is for the app's own "Load MIDI file..." playback feature, unrelated to browsing
-		// a patch library, and this view wants all the height it can get.
-		playButton.setVisible(!inGridSequencer && !inRetroSequencer && !showingSoundbanks);
-		stopButton.setVisible(!inGridSequencer && !inRetroSequencer && !showingSoundbanks);
+		// The two grid-style sequencer panels carry their own mode-switch and hamburger buttons
+		// in their transport rows (same look, see AppModeIcons.h), so the app's top strip is
+		// hidden for them to give the sequencer the whole height. Every other view - front panel,
+		// soundbanks, retro sequencer - gets the strip with exactly those two buttons on its right.
+		// Status line: front panel only (feedback for the MIDI-file player in the hamburger menu).
 		menuButton.setVisible(!inGridSequencer);
+		modeButton.setVisible(!inGridSequencer);
+		modeButton.setMode(currentMode());
 		statusLabel.setVisible(!inGridSequencer && !inRetroSequencer && !showingSoundbanks);
+		// Visibility of the soundbank test-note/HOLD/PITCH buttons is decided here, outside the
+		// strip block below: it used to live inside `if (!inGridSequencer)`, so leaving Soundbanks
+		// for the grid/piano-roll sequencer never hid them and they covered its top rows.
+		testNoteButton.setVisible(showingSoundbanks);
+		holdButton.setVisible(showingSoundbanks);
+		pitchButton.setVisible(showingSoundbanks);
 		if (!inGridSequencer) {
-			// Retro landscape's top strip only ever holds the hamburger (Play/Stop/status
-			// stay hidden there - see this function's own comment above on why) - the full
-			// 72px transport-row height was sized for Panel mode's 3-button row, wasted here
-			// on one corner button. Alan's request, 2026-08-24: shrink the button by half and
-			// hand every pixel reclaimed from the strip to the sequencer/keyboard below
-			// (nothing else needed to explicitly "shift up" - less removed from the top of
-			// `area` here means more of it left for them further down).
-			const bool shrinkHamburger = inRetroSequencer && isLandscape;
-			// Soundbanks only ever has the hamburger in this row (Play/Stop/status all hidden
-			// there, same as retro) - Alan's report, 2026-08-28: the row was still reserving the
-			// full Panel-mode 72px even though the (now 40px-tall) button left a 32px gap below
-			// it before the search box/list actually started. Reserving exactly buttonH there
-			// instead removes that gap outright, same reasoning as retro landscape's own shrink
-			// just above.
-			const int transportH = shrinkHamburger ? 36 : (showingSoundbanks ? 40 : 72);
-			auto transport = area.removeFromTop(transportH);
-			if (shrinkHamburger) {
-				menuButton.setBounds(transport.removeFromRight(36).reduced(3));
-			} else if (inRetroSequencer) {
-				// Retro portrait - untouched, Alan didn't ask to shrink this one (its own strip
-				// has room the other two views don't).
-				menuButton.setBounds(transport.removeFromRight(72).reduced(6));
-			} else {
-				// Panel view and Soundbanks - Alan's request, 2026-08-28, four rounds: shrunk to
-				// ~70% width; corrected when a first attempt (a 72-tall square) came out 50%
-				// BIGGER, not smaller; then explicitly asked to match the GRID sequencer's own
-				// hamburger-equivalent button instead of an arbitrary independently-chosen size -
-				// D110SequencerPanel::layout()'s `barMenuBounds`, the small toggle at the right
-				// end of ITS OWN transport row (`colT(0.958f, 0.042f)` there). That button is
-				// always 40 tall (`jmin(40.0f, ...)` caps it there on any real screen) and
-				// `rowWidth * 0.042f - 4.0f` wide, off the SAME row-width basis - replicated
-				// directly here (not just approximated) so a wider/narrower phone keeps the exact
-				// same proportions in both places. Pinned flush to the row's TOP edge (Alan's own
-				// correction - a bottom anchor still left a gap against the status bar/screen top,
-				// which is the edge he actually meant to touch, not the panel/Soundbanks content
-				// below) - no `.reduced()` at all, so it's flush with zero gap.
-				const float rowW = transport.getWidth();
-				const int buttonW = juce::jmax(28, juce::roundToInt(rowW * 0.042f - 4.0f));
-				constexpr int buttonH = 40;
-				auto right = transport.removeFromRight(buttonW);
-				menuButton.setBounds(right.removeFromTop(buttonH));
-			}
-			// Test-note/HOLD - leftmost on this same row, Alan's own words ("un bouton tout à
-			// gauche, sur la même ligne que le menu hamburger"). Whatever's left of `transport`
-			// after the hamburger was carved off its right side above.
-			testNoteButton.setVisible(showingSoundbanks);
-			holdButton.setVisible(showingSoundbanks);
-			pitchButton.setVisible(showingSoundbanks);
+			// Retro landscape keeps its compact 36px strip (Alan, 2026-08-24); everywhere else the
+			// buttons match the grid sequencer's own bar-menu button: 40 tall, rowWidth * 0.042 - 4
+			// wide, flush against the top-right corner.
+			const bool compactStrip = inRetroSequencer && isLandscape;
+			const int buttonH = compactStrip ? 36 : 40;
+			auto transport = area.removeFromTop(buttonH);
+			const int buttonW = compactStrip ? 36 : juce::jmax(28, juce::roundToInt(transport.getWidth() * 0.042f - 4.0f));
+			menuButton.setBounds(transport.removeFromRight(buttonW));
+			modeButton.setBounds(transport.removeFromRight(buttonW));
 			if (showingSoundbanks) {
-				constexpr int buttonH = 40;
 				const int btnW = juce::jmax(64, juce::roundToInt(transport.getWidth() * 0.16f));
-				testNoteButton.setBounds(transport.removeFromLeft(btnW).removeFromTop(buttonH));
+				testNoteButton.setBounds(transport.removeFromLeft(btnW));
 				transport.removeFromLeft(4);
-				holdButton.setBounds(transport.removeFromLeft(btnW).removeFromTop(buttonH));
+				holdButton.setBounds(transport.removeFromLeft(btnW));
 				transport.removeFromLeft(4);
-				pitchButton.setBounds(transport.removeFromLeft(btnW).removeFromTop(buttonH));
-			}
-			if (!inRetroSequencer && !showingSoundbanks) {
-				// Alan's request, 2026-08-28: Play/Stop used to split the WHOLE transport row
-				// width between them (very wide, worst in landscape where that row is widest),
-				// and Ready/status sat in its own dedicated 40px strip right below, stealing
-				// that height from the panel/keyboard permanently, playing or not. Both buttons
-				// now get one fixed, modest width instead of stretching, and Ready shares the
-				// rest of the same row on their right rather than a strip of its own - the 40px
-				// this used to cost the keyboard in Panel mode is now reclaimed outright.
-				// Alan's follow-up request, 2026-08-28: these still read as too tall (stretching
-				// to the row's own full 72px height minus a 6px inset = 60px) - shrunk to a fixed,
-				// vertically-centred 44px instead of tracking the row height at all. He's also
-				// floated removing/relocating Play/Stop from this row entirely at some future
-				// point (its own "Load MIDI file..." playback feature reads as a duplicate of the
-				// panel's own transport to some users) - not acted on here, just noted.
-				constexpr int kTransportButtonW = 84;
-				constexpr int kTransportButtonH = 44;
-				playButton.setBounds(transport.removeFromLeft(kTransportButtonW)
-				                          .withSizeKeepingCentre(kTransportButtonW - 12, kTransportButtonH));
-				stopButton.setBounds(transport.removeFromLeft(kTransportButtonW)
-				                          .withSizeKeepingCentre(kTransportButtonW - 12, kTransportButtonH));
-				statusLabel.setBounds(transport.reduced(10, 6));
+				pitchButton.setBounds(transport.removeFromLeft(btnW));
+			} else if (!inRetroSequencer) {
+				statusLabel.setBounds(transport.reduced(10, 0));
 			}
 		}
 
@@ -512,9 +458,14 @@ private:
 		// in the app is sitting there showing the "ROMs not found" error instead of the panel.
 		m.addItem("Choose ROM files...", [this] { chooseRomFolder(); });
 		m.addItem("Load MIDI file...", [this] { chooseMidiFile(); });
+		m.addItem(playing ? "Pause MIDI file" : "Play MIDI file", [this] { togglePlayPause(); });
+		m.addItem("Stop MIDI file", [this] { stopPlayback(); });
 		m.addItem("Import SysEx/MIDI Bank...", [this] { chooseSysexFile(); });
-		m.addItem(showingSequencer ? "Front Panel" : "Sequencer", [this] { toggleSequencerView(); });
-		m.addItem(showingSoundbanks ? "Front Panel" : "Soundbanks...", [this] { toggleSoundbanksView(); });
+		m.addSeparator();
+		// The same three views the mode-switch button cycles through, picked directly.
+		for (auto mode : { d110ui::AppMode::frontPanel, d110ui::AppMode::sequencer, d110ui::AppMode::soundbanks })
+			m.addItem(d110ui::appModeName(mode), true, currentMode() == mode, [this, mode] { setMode(mode); });
+		m.addSeparator();
 		m.addItem("Choose soundbank files...", [this] { chooseSoundbankFiles(); });
 		// D110Keyboard::showContextMenu() is the exact same channel/remap/PC-keyboard menu the
 		// desktop keyboard's right-click shows - reached here directly instead of reimplementing
@@ -613,26 +564,33 @@ private:
 		applyThemeMode();
 	}
 
-	// The three views are mutually exclusive (see D110AudioProcessor::setSequencerRetroMode()) -
-	// picked from the "Sequencer" submenu in buildAppMenu()'s Options.
-	void toggleSequencerView() {
-		showingSequencer = !showingSequencer;
-		if (showingSequencer) showingSoundbanks = false;
-		resized();
+	// The three top-level views are mutually exclusive: front panel (neither flag), sequencer
+	// (whose own Classic/Retro/Piano-roll flavour is the separate "Sequencer" submenu in
+	// Options) and soundbanks.
+	d110ui::AppMode currentMode() const {
+		return showingSoundbanks ? d110ui::AppMode::soundbanks
+		       : showingSequencer ? d110ui::AppMode::sequencer
+		                          : d110ui::AppMode::frontPanel;
 	}
 
-	void toggleSoundbanksView() {
-		showingSoundbanks = !showingSoundbanks;
+	void setMode(d110ui::AppMode mode) {
+		if (mode == currentMode()) return;
+		const bool wasSoundbanks = showingSoundbanks;
+		showingSequencer = (mode == d110ui::AppMode::sequencer);
+		showingSoundbanks = (mode == d110ui::AppMode::soundbanks);
 		if (showingSoundbanks) {
-			showingSequencer = false;
 			soundbankBrowser.refresh(); // pick up anything scanned since this was last shown
-		} else {
+		} else if (wasSoundbanks) {
 			// Leaving the screen with HOLD still on would otherwise leave a note sustaining
 			// with no visible way back to stop it short of MIDI Panic - stop it here instead.
 			stopHeldTestNote();
 		}
 		resized();
+		repaint();
 	}
+
+	// Front panel -> sequencer -> soundbanks -> front panel.
+	void cycleMode() { setMode(d110ui::nextAppMode(currentMode())); }
 
 	// Soundbanks view's test-note (left, plays testNotePitch on the currently selected Part -
 	// see SoundbankBrowser::getSelectedPart()), HOLD (sustains it and follows whichever tone is
@@ -1160,11 +1118,12 @@ private:
 	// Manual per-side margin overrides - see resized()'s own comment and the "Options" menu's
 	// four checkboxes above. All false = Auto.
 	bool navTop = false, navBottom = false, navLeft = false, navRight = false;
-	juce::TextButton playButton, stopButton, menuButton;
+	d110ui::HamburgerButton menuButton;
+	d110ui::ModeButton modeButton;
 	juce::Label statusLabel;
 	std::unique_ptr<juce::FileChooser> fileChooser;
 
-	// Soundbanks view's test-note/HOLD buttons - see toggleSoundbanksView()'s own comment on
+	// Soundbanks view's test-note/HOLD buttons - see resized()'s own comment on
 	// where they're laid out and wireUpSoundbankTestNote()'s own comment for the full behaviour.
 	HeldNoteButton testNoteButton;
 	juce::TextButton holdButton;
