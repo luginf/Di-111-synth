@@ -1,12 +1,12 @@
 #!/bin/bash
-# Refreshes release-artifacts/D-110_linux/Standalone (the local Linux bundle: D-110, D-50, Nonet-Seq)
+# Refreshes release-artifacts/Di-111_linux/Standalone (the local Linux bundle: D-110, D-50, Nonet-Seq)
 # from the CMake build tree. plugin/build/ is only the build tree; this folder is what gets run/shipped.
 # Builds are niced and capped at 3 jobs. Nonet-Seq lives in its own repo: it is copied, not built here.
 set -e
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-BUILD="$ROOT/plugin/build"
-BUNDLE="$ROOT/release-artifacts/D-110_linux/Standalone"
+BUILD="${BUILD:-$ROOT/plugin/build}"
+BUNDLE="$ROOT/release-artifacts/Di-111_linux/Standalone"
 NONET_SEQ_BIN="${NONET_SEQ_BIN:-$HOME/src/nonet-sequencer/build/Nonet-Seq}"
 
 nice -n 19 cmake --build "$BUILD" --target D110EmulatorNative_Standalone D50Emulator_Standalone -- -j3

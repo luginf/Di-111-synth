@@ -2197,6 +2197,27 @@ target_link_libraries(d110_native_assign_mode PRIVATE
     D110PanelData MT32Emu::mt32emu
     juce::juce_audio_utils juce::juce_audio_processors)
 
+# Repro for silent rhythm channel (ch 10).
+add_executable(d110_native_rhythm_silent native_rhythm_silent_probe.cpp
+    Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp
+    Source/native/mcs96_cpu.cpp Source/native/d110_bus.cpp Source/native/msm6222b.cpp
+    Source/native/D110CoreNative.cpp Source/native/ram_mirror.cpp
+    Source/sequencer/D110SequencerEngine.cpp
+    Source/sequencer/D110SequencerSongsFile.cpp
+    Source/UiTheme.cpp
+    Source/sequencer/D110SequencerPanel.cpp
+    Source/sequencer/D110SequencerRetroPanel.cpp
+    Source/sequencer/D110SequencerGridPanel.cpp
+    Source/DotMatrixFont.cpp)
+target_include_directories(d110_native_rhythm_silent PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_definitions(d110_native_rhythm_silent PRIVATE
+    D110_NATIVE_CORE=1
+    JUCE_STANDALONE_APPLICATION=0 JUCE_MODULE_AVAILABLE_juce_audio_plugin_client=0
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(d110_native_rhythm_silent PRIVATE
+    D110PanelData MT32Emu::mt32emu
+    juce::juce_audio_utils juce::juce_audio_processors)
+
 # Verifies the 2026-08-07 fix mirroring masterTune to the sound engine. See the probe's own
 # header comment.
 add_executable(d110_native_master_tune native_master_tune_probe.cpp

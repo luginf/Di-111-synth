@@ -27,6 +27,36 @@ constexpr int kRenderStride = 16;
 
 } // namespace
 
+// Factory Rhythm Setup (85 keys x 4 bytes: timbre, level, pan, output) and the factory record of Part R
+// (the 9th Timbre Temporary record), as the firmware itself writes them on a cold start (measured from a
+// fresh NVRAM, 2026-10-01). Used only to repair a saved NVRAM that lost them - see start().
+static const uint8_t kFactoryRhythmSetup[340] = {
+	127, 0, 7, 0, 127, 0, 7, 0, 127, 0, 7, 0, 127, 0, 7, 0,
+	127, 0, 7, 0, 127, 0, 7, 0, 127, 0, 7, 0, 127, 0, 7, 0,
+	127, 0, 7, 0, 127, 0, 7, 0, 127, 0, 7, 0, 78, 100, 5, 0,
+	79, 100, 5, 0, 88, 100, 7, 1, 82, 100, 7, 1, 102, 100, 5, 1,
+	83, 100, 7, 1, 93, 100, 1, 1, 64, 100, 9, 1, 96, 100, 1, 1,
+	67, 100, 9, 1, 92, 100, 7, 1, 66, 100, 9, 1, 95, 100, 7, 1,
+	91, 100, 11, 1, 68, 100, 9, 1, 94, 100, 11, 1, 71, 100, 3, 1,
+	76, 100, 1, 1, 74, 100, 3, 1, 103, 100, 3, 1, 77, 100, 7, 1,
+	104, 100, 5, 1, 70, 100, 9, 1, 84, 100, 7, 1, 73, 100, 3, 1,
+	105, 100, 11, 1, 106, 100, 9, 1, 107, 100, 5, 1, 108, 100, 5, 1,
+	109, 100, 3, 1, 110, 100, 9, 1, 111, 100, 11, 1, 112, 100, 3, 1,
+	113, 100, 3, 1, 114, 100, 5, 1, 115, 100, 9, 1, 116, 100, 5, 1,
+	117, 100, 5, 1, 118, 100, 3, 1, 75, 100, 3, 1, 119, 100, 1, 1,
+	89, 100, 7, 1, 90, 100, 7, 1, 120, 100, 11, 1, 101, 100, 9, 1,
+	121, 100, 7, 1, 100, 100, 13, 1, 122, 100, 0, 1, 123, 100, 9, 1,
+	80, 100, 5, 0, 81, 100, 5, 0, 85, 100, 7, 1, 86, 100, 7, 1,
+	87, 100, 7, 1, 99, 100, 3, 1, 65, 100, 9, 1, 98, 100, 11, 1,
+	69, 100, 9, 1, 97, 100, 5, 1, 72, 100, 3, 1, 124, 100, 11, 1,
+	125, 100, 9, 1, 126, 100, 7, 1, 127, 0, 7, 0, 127, 0, 7, 0,
+	127, 0, 7, 0, 127, 0, 7, 0, 127, 0, 7, 0, 127, 0, 7, 0,
+	127, 0, 7, 0, 127, 0, 7, 0, 127, 0, 7, 0, 127, 0, 7, 0,
+	127, 0, 7, 0,
+};
+static const uint8_t kFactoryPartR[16] = { 0, 0, 24, 50, 12, 2, 1, 0, 100, 0, 0, 127, 0, 0, 0, 0 };
+
+
 bool D110CoreNative::start(const std::string &romFolder, const std::string &nvramDir) {
 	std::vector<uint8_t> firmware, presets, cgrom;
 	if (!loadFile(romFolder + "/d-110.v1.10.ic19.bin", firmware, 0x8000)) {
@@ -74,6 +104,22 @@ bool D110CoreNative::start(const std::string &romFolder, const std::string &nvra
 			// "unit 1" is far less likely than the damage), and would leave every external
 			// sequencer/librarian addressing 0x10 ignored. Restore the factory 17.
 			if (rams[0x2DB6] == 0 && rams[0x2DB7] == 0) rams[0x2DB6] = rams[0x2DB7] = 0x10;
+			// Measured on two unrelated saved NVRAMs (one tested on another account/machine): Part R's
+			// record read key low = key high = 0, key shift/fine tune at their minimum, POLY 1 - i.e.
+			// all zero except the LEVEL/PAN a MIDI import had written - and the Rhythm Setup was all
+			// zero too. The panel's R indicator lit on every channel-10 note (the engine does start a
+			// voice) but nothing was audible, since no key is inside C-1..C-1. Neither is a setting a
+			// user can mean, so put the factory values back. LEVEL/PAN (bytes 8, 9) are kept.
+			{
+				uint8_t *partR = &rams[size_t(kRamTimbreTemp) + 8 * size_t(kTimbreTempRecord)];
+				if (partR[11] == 0 && partR[10] == 0) {
+					for (int i = 0; i < 16; ++i)
+						if (i != 8 && i != 9) partR[i] = kFactoryPartR[i];
+				}
+				uint8_t *rs = &rams[size_t(kRamRhythmTemp)];
+				if (std::all_of(rs, rs + sizeof(kFactoryRhythmSetup), [](uint8_t v) { return v == 0; }))
+					std::memcpy(rs, kFactoryRhythmSetup, sizeof(kFactoryRhythmSetup));
+			}
 			bus_.rams = std::move(rams);
 		}
 		if (loadFile(nvramDir_ + "/d110/memcs", memcs, 0x8000)) bus_.memcs = std::move(memcs);
@@ -549,6 +595,20 @@ void D110CoreNative::factoryReset() {
 	// Give the firmware time to rewrite its patch and timbre memory before anything else
 	// touches it.
 	runForSeconds(4.0);
+
+	// Reboot once more, now that the memory is valid. Measured: right after the initialisation
+	// the firmware accepts MIDI (the serial bytes are consumed) but plays nothing at all, on any
+	// channel, rhythm included - its per-part working state (0x2DC0-0x3480, one record per Part)
+	// is only rebuilt by a boot that finds valid RAM, exactly as a second launch on the saved
+	// NVRAM does. A manual power cycle fixed it; this makes the first launch do the same.
+	cpu_.reset();
+	cycleAccum_ = 0.0;
+	tickPhase_ = 0.0;
+	extIntHigh_ = false;
+	bus_.la32Pending = false;
+	port0Bit4_ = false;
+	runForSeconds(5.0);
+
 	// The whole memory has just been rebuilt from the preset ROM, so tell the engine about
 	// all of it rather than waiting for a diff to notice piecemeal.
 	resyncMirror();

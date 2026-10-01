@@ -133,7 +133,7 @@ behaviour. Don't duplicate that here; this file is about how to work in the repo
   same panel/keyboard/sequencer sources unchanged. Functional on real hardware; shipped as a
   release APK (`./gradlew assembleRelease`, debug-keystore-signed - no dedicated release
   keystore exists) since v0.9.5-fixes16 (2026-08-28, `D-110_android_debug.apk`; renamed to
-  `D-110_android.apk` from fixes17 on). `docs/android.md` is the short user-facing guide; `.claude/dev-notes/
+  `D-110_android.apk` from fixes17 on, `Di-111_android.apk` since the 2026-10-01 rename). `docs/android.md` is the short user-facing guide; `.claude/dev-notes/
   android.md` has the full development history and JUCE-on-Android file-I/O gotchas worth
   reading before touching that code again (`juce::URL::isLocalFile()` lies on Android for
   content:// results, a long-press timer can race a `juce::FileChooser` there in a way desktop

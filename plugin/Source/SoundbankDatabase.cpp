@@ -1,4 +1,5 @@
 #include "SoundbankDatabase.h"
+#include "AppDataPath.h"
 
 #include <algorithm>
 #include <array>
@@ -330,9 +331,7 @@ std::vector<DecodedPatch> decodePatchesFromFile(const juce::File &file) {
 }
 
 juce::File Database::defaultRoot() {
-	return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-		.getChildFile("D-110 Emulator")
-		.getChildFile("soundbanks_db");
+	return d110appdata::resolve("soundbanks_db");
 }
 
 Database::Database(juce::File dbRoot) : root(std::move(dbRoot)) {}
@@ -607,9 +606,7 @@ bool Database::restoreFromZip(const juce::File &zipFile) {
 }
 
 juce::File Favorites::defaultFile() {
-	return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-		.getChildFile("D-110 Emulator")
-		.getChildFile("soundbank_favorites.json");
+	return d110appdata::resolve("soundbank_favorites.json");
 }
 
 Favorites::Favorites(juce::File f) : indexFile(std::move(f)) { load(); }

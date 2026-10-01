@@ -19,6 +19,7 @@ using D110CoreType = D110CoreNative;
 using D110CoreType = D110Core;
 #endif
 #include "D110KeyboardHost.h"
+#include "AppDataPath.h"
 #include "SoundbankDatabase.h"
 #include "sequencer/D110SequencerEngine.h"
 #include "sequencer/D110SequencerHost.h"
@@ -562,24 +563,18 @@ public:
 	// one-line text file, deliberately outside getNvramRoot()/getAutoRomFolder() (there's no
 	// ROM folder to resolve yet at the point this itself needs to be read).
 	static juce::File getCustomRomPathFile() {
-		return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-			.getChildFile("D-110 Emulator")
-			.getChildFile("custom_rom_path.txt");
+		return d110appdata::resolve("custom_rom_path.txt");
 	}
 
 	// Same pattern as getCustomRomPathFile() above, for the custom-PCM-sample folder setting.
 	static juce::File getCustomSamplePathFile() {
-		return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-			.getChildFile("D-110 Emulator")
-			.getChildFile("custom_sample_path.txt");
+		return d110appdata::resolve("custom_sample_path.txt");
 	}
 
 	// Same pattern again, for the Soundbanks source-folder setting - see
 	// getSoundbankSourceFolder().
 	static juce::File getSoundbankSourcePathFile() {
-		return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-			.getChildFile("D-110 Emulator")
-			.getChildFile("soundbank_source_path.txt");
+		return d110appdata::resolve("soundbank_source_path.txt");
 	}
 
 	// A fixed, plain-filesystem staging folder for individually-picked SysEx/MIDI/.zip files -
@@ -593,9 +588,7 @@ public:
 	// SoundbankBrowser::startRescan()'s own comment for why RESCAN always scans this folder in
 	// ADDITION to getSoundbankSourceFolder(), never replacing it.
 	static juce::File getSoundbankImportsFolder() {
-		return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-			.getChildFile("D-110 Emulator")
-			.getChildFile("soundbank_source");
+		return d110appdata::resolve("soundbank_source");
 	}
 
 	// The panel draws its own VOLUME knob out of the reference photograph, so it talks to the

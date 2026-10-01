@@ -381,9 +381,7 @@ juce::File D110AudioProcessor::getNvramRoot() {
 	}();
 	if (writable) return preferred;
 
-	return resolveNamedFolder(juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory),
-	                          "D-110 Emulator")
-		.getChildFile("nvram");
+	return d110appdata::resolve("nvram");
 }
 
 bool D110AudioProcessor::nvramIsBesideRoms() {
@@ -432,8 +430,7 @@ juce::MemoryBlock D110AudioProcessor::readNvramFile(const juce::String &name) co
 // working folder shaped the way the machine wants. Nothing about the data folder
 // changes, and the copy is about 1.2 MB.
 juce::String D110AudioProcessor::getMameRomPath() {
-	const auto root = resolveNamedFolder(juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory),
-	                                     "D-110 Emulator").getChildFile("romset");
+	const auto root = d110appdata::resolve("romset");
 	const auto setDir = root.getChildFile("d110");
 	setDir.createDirectory();
 
@@ -552,12 +549,12 @@ juce::File D110AudioProcessor::getAutoRomFolder() {
 	// makes no sense for them. Only actually used if that is where the ROMs turn out to be;
 	// the VST3-colocated folder above stays the default for a fresh install either way, so
 	// nothing changes for anyone already using it.
-	const auto appData = resolveNamedFolder(
-		juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory).getChildFile("D-110 Emulator"),
-		"D-110 Data");
+	const auto appData = resolveNamedFolder(d110appdata::newRoot(), "D-110 Data");
+	const auto appDataLegacy = resolveNamedFolder(d110appdata::legacyRoot(), "D-110 Data");
 
 	if (folderHasRoms(vst3Colocated)) return vst3Colocated;
 	if (folderHasRoms(appData)) return appData;
+	if (folderHasRoms(appDataLegacy)) return appDataLegacy;
 
 	// Neither dedicated folder has anything yet - one last look for ROMs sitting loose right
 	// next to the VST3 bundle or the Standalone binary itself, copied in if found.
