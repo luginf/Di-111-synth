@@ -166,6 +166,7 @@ public:
 	// byte by exactly three, one Bank+ by exactly eight (plugin/editor_write_probe.cpp). This is
 	// what lets the editor go to any patch with the panel's own buttons.
 	static constexpr int kRamPatchNumber = 0x2DB9;
+	static constexpr int kRamUnitNumber = 0x2DB6; // Exclu Unit# (SysEx device ID), see the native core
 
 	static constexpr int kNumPatches       = 64;
 	static constexpr int kPatchRecord      = 128;

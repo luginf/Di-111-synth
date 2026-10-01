@@ -2312,7 +2312,22 @@ void D110AudioProcessor::sendAreaData(juce::uint32 sysexAddress, int offset,
 	if (!core.isRunning() || data == nullptr || length <= 0) return;
 	juce::uint8 msg[D110CoreType::kMaxSysexBytes];
 	const int n = D110CoreType::buildDt1Message(sysexAddress, offset, data, length, msg);
-	if (n > 0) core.pushMidi(msg, n);
+	if (n > 2) {
+		msg[2] = firmwareDeviceId(); // not covered by the checksum
+		core.pushMidi(msg, n);
+	}
+}
+
+// Measured (plugin/channel_import_probe.cpp): the firmware silently ignores any DT1 whose device
+// ID differs from its Exclu Unit#. That byte is battery RAM, so it survives restarts - and a
+// Display Message SysEx left pending at shutdown makes the next boot reset it to 0, after which
+// every editor write (hard-coded 0x10 before this) was dropped for good.
+juce::uint8 D110AudioProcessor::firmwareDeviceId() const {
+	if (!core.isRunning()) return 0x10;
+	std::vector<uint8_t> ram(D110CoreType::kRamSize, 0);
+	if (!core.getRam(ram.data())) return 0x10;
+	const uint8_t id = ram[size_t(D110CoreType::kRamUnitNumber)];
+	return id <= 31 ? id : juce::uint8(0x10);
 }
 
 void D110AudioProcessor::sendTimbreTempParam(int part, int field, juce::uint8 value) {
@@ -2417,6 +2432,23 @@ std::vector<std::vector<juce::uint8>> D110AudioProcessor::buildTrackSysExPreambl
 	return out;
 }
 
+// Same write as sendTimbreTempParam(), but queued behind whatever the import has already put in
+// osMidiCollector (SysEx, Program Changes) instead of jumping ahead of it: a Program Change
+// reloads the Part's LEVEL/PAN from Timbre Memory, so a Volume/Pan written first is wiped out.
+void D110AudioProcessor::queueTimbreTempParam(int part, int field, juce::uint8 value) {
+	if (part < 0 || part >= D110CoreType::kNumParts) return;
+	if (field < 0 || field >= D110CoreType::kTimbreTempRecord) return;
+	const juce::uint8 v = value & 0x7f;
+	juce::uint8 msg[D110CoreType::kMaxSysexBytes];
+	const int n = D110CoreType::buildDt1Message(D110CoreType::kSysexTimbreTemp,
+	                                            part * D110CoreType::kTimbreTempRecord + field, &v, 1, msg);
+	if (n <= 2) return;
+	msg[2] = firmwareDeviceId();
+	auto sysex = juce::MidiMessage::createSysExMessage(msg + 1, n - 2);
+	sysex.setTimeStamp(juce::Time::getMillisecondCounterHiRes() * 0.001);
+	osMidiCollector.addMessageToQueue(sysex);
+}
+
 void D110AudioProcessor::applyLoadedTrackSetup(int track, std::vector<juce::MidiMessage> setup) {
 	// Program Change and the Internal-tone SysEx preamble are replayed as plain live MIDI,
 	// through osMidiCollector - confirmed reliable (Program Change and the Tone Memory dump
@@ -2435,15 +2467,31 @@ void D110AudioProcessor::applyLoadedTrackSetup(int track, std::vector<juce::Midi
 	// sidesteps a still-unexplained, separate bug where live CC10 replay works for some
 	// channels and not others - see project_reimport_volume_pan_channel_bug memory). Scaled
 	// back from the wire's 0-127 down to the D-110's own 0-100/0-14 ranges.
-	for (const auto &message : setup) {
+	// The engine rewrote each Program Change's channel to the track's channel AS OF THE LOAD,
+	// i.e. before this file's own SysEx has remapped the channel map (a file authored with
+	// Part N on channel N lands on a factory unit whose Part N still listens on N+1). The
+	// remap is queued ahead of the Program Change below, so the PC has to target the channel
+	// the file's own map write (SYSTEM offset 13+track) is about to establish.
+	int mapChannel = -1;
+	if (track != d110seq::D110SequencerEngine::kRhythmTrack) {
+		for (const auto &message : setup) {
+			if (!message.isSysEx()) continue;
+			const auto *d = message.getSysExData();
+			if (message.getSysExDataSize() >= 8 && d[0] == 0x41 && d[2] == 0x16 && d[3] == 0x12
+			    && d[4] == 0x10 && d[5] == 0x00 && d[6] == 13 + track && d[7] <= 15)
+				mapChannel = d[7] + 1;
+		}
+	}
+	for (auto message : setup) {
+		if (mapChannel > 0 && message.getChannel() > 0) message.setChannel(mapChannel);
 		if (message.isController() && message.getControllerNumber() == 7) {
 			const int level = juce::jlimit(0, 100, juce::roundToInt(message.getControllerValue() * 100.0f / 127.0f));
-			sendTimbreTempParam(track, 8, static_cast<juce::uint8>(level));
+			queueTimbreTempParam(track, 8, static_cast<juce::uint8>(level));
 			continue;
 		}
 		if (message.isController() && message.getControllerNumber() == 10) {
 			const int pan = juce::jlimit(0, 14, juce::roundToInt(message.getControllerValue() * 14.0f / 127.0f));
-			sendTimbreTempParam(track, 9, static_cast<juce::uint8>(pan));
+			queueTimbreTempParam(track, 9, static_cast<juce::uint8>(pan));
 			continue;
 		}
 		if (message.isSysEx()) {
@@ -2459,6 +2507,17 @@ void D110AudioProcessor::applyLoadedTrackSetup(int track, std::vector<juce::Midi
 			const bool isD110Dt1 = size >= 4 && data[0] == 0x41 && data[1] == 0x10 && data[2] == 0x16
 			                        && data[3] == 0x12;
 			if (!isD110Dt1) continue;
+			// Display Message (0x200000) is cosmetic, and harmful here: a message still pending
+			// at shutdown makes the firmware's next boot reset its Exclu Unit# (see
+			// firmwareDeviceId()), which used to leave every later write ignored.
+			if (size >= 7 && data[4] == 0x20 && data[5] == 0x00 && data[6] == 0x00) continue;
+			// Files are authored for the factory unit number 17; the firmware only answers its own.
+			std::vector<juce::uint8> patched(data, data + size);
+			patched[1] = firmwareDeviceId();
+			auto timed = juce::MidiMessage::createSysExMessage(patched.data(), int(patched.size()));
+			timed.setTimeStamp(juce::Time::getMillisecondCounterHiRes() * 0.001);
+			osMidiCollector.addMessageToQueue(timed);
+			continue;
 		}
 		auto timed = message;
 		timed.setTimeStamp(juce::Time::getMillisecondCounterHiRes() * 0.001);

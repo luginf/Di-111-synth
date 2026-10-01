@@ -63,7 +63,19 @@ bool D110CoreNative::start(const std::string &romFolder, const std::string &nvra
 		// Same 32KB-raw-dump format nvram_device::DEFAULT_ALL_0 writes - an existing
 		// MAME-backed session's folder is read back byte for byte, or left zero-filled if
 		// absent, matching a factory-fresh battery exactly as the MAME path does.
-		if (loadFile(nvramDir_ + "/d110/rams", rams, 0x8000)) bus_.rams = std::move(rams);
+		if (loadFile(nvramDir_ + "/d110/rams", rams, 0x8000)) {
+			// A Display Message SysEx (address 0x200000) still pending when the RAM was saved
+			// leaves bit 6 of 0x36E6 set; the firmware's next boot then resets its Exclu Unit#
+			// (0x2DB6/7) to 0, after which it ignores every DT1 addressed to the factory device
+			// ID 0x10 (measured, plugin/channel_import_probe.cpp, since removed). The message is
+			// cosmetic and gone after a restart anyway, so drop the flag before the boot sees it.
+			rams[0x36E6] &= uint8_t(~0x40);
+			// Already-damaged saves: both copies of Exclu Unit# at 0 is that reset (a deliberate
+			// "unit 1" is far less likely than the damage), and would leave every external
+			// sequencer/librarian addressing 0x10 ignored. Restore the factory 17.
+			if (rams[0x2DB6] == 0 && rams[0x2DB7] == 0) rams[0x2DB6] = rams[0x2DB7] = 0x10;
+			bus_.rams = std::move(rams);
+		}
 		if (loadFile(nvramDir_ + "/d110/memcs", memcs, 0x8000)) bus_.memcs = std::move(memcs);
 	}
 
@@ -73,7 +85,10 @@ bool D110CoreNative::start(const std::string &romFolder, const std::string &nvra
 	elapsedSeconds_ = 0.0;
 	tickPhase_ = 0.0;
 	mirror_ = RamMirror();
-	midiInQueue_.clear();
+	{
+		std::lock_guard<std::mutex> lk(midiInMutex_);
+		midiInQueue_.clear();
+	}
 	noteQueue_.clear();
 	rhythmHintQueue_.clear();
 	for (int i = 0; i < kNumVoiceContexts; ++i) {
@@ -149,10 +164,13 @@ void D110CoreNative::runForSeconds(double seconds) {
 			// still busy) - never loses data outright, which silently corrupting whatever
 			// MIDI message happened to be next (a note-off often enough to matter) is
 			// strictly worse than.
-			if (!midiInQueue_.empty() && cpu_.serialRxReady()) {
-				cpu_.serialWrite(midiInQueue_.front());
-				midiInQueue_.pop_front();
-				++midiDelivered_;
+			{
+				std::lock_guard<std::mutex> lk(midiInMutex_);
+				if (!midiInQueue_.empty() && cpu_.serialRxReady()) {
+					cpu_.serialWrite(midiInQueue_.front());
+					midiInQueue_.pop_front();
+					++midiDelivered_;
+				}
 			}
 			serviceStuckPolicy();
 			port0Bit4_ = !port0Bit4_;
@@ -303,6 +321,7 @@ void D110CoreNative::serviceStuckPolicy() {
 
 void D110CoreNative::pushMidi(const u8 *bytes, int len) {
 	if (len > 0) lastMidiByteSeconds_ = elapsedSeconds_;
+	std::lock_guard<std::mutex> lk(midiInMutex_);
 	for (int i = 0; i < len; ++i) midiInQueue_.push_back(bytes[i]);
 }
 

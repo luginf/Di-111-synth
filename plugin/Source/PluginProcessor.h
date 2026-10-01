@@ -670,6 +670,10 @@ public:
 	// and checks which byte of the firmware's battery RAM moved. All of them land where
 	// Roland's map says, and Mem Protect does not stand in the way of exclusive writes.
 	void sendAreaData(juce::uint32 sysexAddress, int offset, const juce::uint8 *data, int length);
+	// The SysEx device ID the firmware currently answers to (its Exclu Unit#, RAM 0x2DB6), so
+	// internally generated DT1 writes still land when that isn't the factory 0x10. Falls back
+	// to 0x10 when the firmware isn't running or the byte isn't a valid ID (0-31).
+	juce::uint8 firmwareDeviceId() const;
 	void sendTimbreTempParam(int part, int field, juce::uint8 value);
 	void sendToneTempParam(int part, int offset, juce::uint8 value);
 	void sendRhythmParam(int slot, int field, juce::uint8 value);
@@ -697,6 +701,7 @@ public:
 	// method's own .cpp comment for the full story (including an intermediate, reverted
 	// attempt at live-replaying these too, same day).
 	void applyLoadedTrackSetup(int track, std::vector<juce::MidiMessage> setup);
+	void queueTimbreTempParam(int part, int field, juce::uint8 value);
 	// Names are the same ten characters the display shows: printable ASCII only, padded with
 	// spaces. The unit knows no others, and a byte above 0x7F is impossible in an exclusive message.
 	void sendName(juce::uint32 sysexAddress, int offset, const juce::String &name);

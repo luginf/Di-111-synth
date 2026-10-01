@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <cstring>
 #include <deque>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -60,6 +61,10 @@ public:
 	static constexpr int kRamSystem     = 0x2D94;
 	static constexpr int kRamPatchName  = 0x2DAB;
 	static constexpr int kRamPatchNumber = 0x2DB9;
+	// Exclu Unit# as the firmware stores it (two copies, 0x2DB6/0x2DB7): the SysEx device ID it
+	// answers to. Factory 0x10 (unit 17); a leftover Display Message flag makes the next boot
+	// reset it to 0 (see D110AudioProcessor::firmwareDeviceId()).
+	static constexpr int kRamUnitNumber = 0x2DB6;
 
 	static constexpr int kNumPatches       = 64;
 	static constexpr int kPatchRecord      = 128;
@@ -262,7 +267,7 @@ public:
 
 	// Diagnostics for native_note_probe.cpp while it's tracked down - not part of the
 	// eventual D110Core-identical interface.
-	size_t midiQueuePendingForTest() const { return midiInQueue_.size(); }
+	size_t midiQueuePendingForTest() const { std::lock_guard<std::mutex> lk(midiInMutex_); return midiInQueue_.size(); }
 	uint64_t voiceCtxWriteCountForTest() const { return voiceCtxWriteCount_; }
 	bool verboseNoteWatchForTest = false;
 	bool serialRxReadyForTest() const { return cpu_.serialRxReady(); }
@@ -302,6 +307,10 @@ private:
 	// needs it too, via D110Core::kMidiBytesPerSecond's counterpart).
 	static constexpr double kTickPeriodSeconds = 1.0 / kMidiBytesPerSecond;
 	double tickPhase_ = 0.0;
+	// pushMidi() is called from the UI/message thread (editor writes, MIDI-file import) while
+	// runForSeconds() drains the queue on the audio thread: an unguarded std::deque there is a
+	// data race (garbled or dropped bytes, and eventually a wedged firmware).
+	mutable std::mutex midiInMutex_;
 	std::deque<u8> midiInQueue_;
 	double lastMidiByteSeconds_ = -1.0;
 	uint64_t midiDelivered_ = 0;
