@@ -38,15 +38,6 @@ endif()
 # test probes.
 option(D110_BUILD_MAME_BACKEND "Build the MAME-backed D110Emulator plugin and probes" OFF)
 
-# Linux releases also ship LV2 (JUCE's own format) and CLAP (via clap-juce-extensions, wired up
-# right after the D110EmulatorNative target below). Only the native product gets them - the dormant
-# MAME backend and the D-50 target keep D110_FORMATS.
-set(D110_NATIVE_FORMATS ${D110_FORMATS})
-if(UNIX AND NOT APPLE)
-    list(APPEND D110_NATIVE_FORMATS LV2)
-endif()
-option(D110_BUILD_CLAP "Also build a CLAP plugin of the native product (Linux)" ON)
-
 if(D110_BUILD_MAME_BACKEND)
     include("${CMAKE_CURRENT_SOURCE_DIR}/mame.cmake")
 endif()
@@ -126,6 +117,15 @@ set(D110_FORMATS VST3 Standalone)
 if(APPLE)
     list(APPEND D110_FORMATS AU)
 endif()
+
+# Linux releases also ship LV2 (JUCE's own format) and CLAP (via clap-juce-extensions, wired up
+# right after the D110EmulatorNative target below). Only the native product gets them - the dormant
+# MAME backend and the D-50 target keep D110_FORMATS.
+set(D110_NATIVE_FORMATS ${D110_FORMATS})
+if(UNIX AND NOT APPLE)
+    list(APPEND D110_NATIVE_FORMATS LV2)
+endif()
+option(D110_BUILD_CLAP "Also build a CLAP plugin of the native product (Linux)" ON)
 
 if(D110_BUILD_MAME_BACKEND)
 
