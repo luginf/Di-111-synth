@@ -1,4 +1,4 @@
-name: Build Linux AppImage
+name: Build Linux AppImage and zip
 
 # Same trigger convention as the Windows/macOS builds: the CI/infra branch only, or run by hand.
 #
@@ -6,10 +6,12 @@ name: Build Linux AppImage
 # so what it needs is fixed by the machine it was built on: the first one was built by hand on a recent
 # system and needed glibc 2.38 / GLIBCXX 3.4.32, which fails on every older distribution (reported by the
 # AppImage catalog's automatic test, https://github.com/AppImage/appimage.github.io/pull/9619). 22.04 is the
-# oldest Ubuntu LTS still supported; move this to the then-oldest LTS when it goes out of support.
+# oldest Ubuntu LTS still supported; move this to the then-oldest LTS when it goes out of support. The same
+# build also produces Di-111_linux.zip (Standalone, VST3, LV2, CLAP), so that none of the Linux files needs a
+# newer C library than that.
 on:
   push:
-    branches: [ci/windows-macos-builds]
+    branches: [ci/windows-macos-builds, ci/linux-build]
   workflow_dispatch:
 
 concurrency:
@@ -26,7 +28,7 @@ jobs:
         run: |
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            build-essential cmake git curl ca-certificates file binutils pkg-config \
+            build-essential cmake git curl ca-certificates file binutils pkg-config zip \
             libasound2-dev libjack-jackd2-dev libfreetype-dev libfontconfig1-dev \
             libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev \
             libxrandr-dev libxrender-dev libglu1-mesa-dev mesa-common-dev \
@@ -47,9 +49,24 @@ jobs:
         working-directory: plugin
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 
-      - name: Build the Standalone
+      - name: Build Standalone, VST3, LV2 and CLAP
         working-directory: plugin
-        run: cmake --build build --target D110EmulatorNative_Standalone -j"$(nproc)"
+        run: |
+          cmake --build build -j"$(nproc)" \
+            --target D110EmulatorNative_Standalone D110EmulatorNative_VST3 D110EmulatorNative_LV2 D110EmulatorNative_CLAP
+
+      - name: Assemble Di-111_linux.zip
+        run: |
+          A=plugin/build/D110EmulatorNative_artefacts/Release
+          mkdir -p dist/Di-111_linux/Standalone dist/Di-111_linux/VST3 dist/Di-111_linux/LV2 dist/Di-111_linux/CLAP
+          cp "$A/Standalone/Di-111" dist/Di-111_linux/Standalone/
+          cp -r "$A/VST3/Di-111.vst3" dist/Di-111_linux/VST3/
+          cp -r "$A/LV2/Di-111.lv2" dist/Di-111_linux/LV2/
+          cp "$(find plugin/build -name 'Di-111.clap' | head -1)" dist/Di-111_linux/CLAP/
+          find dist/Di-111_linux -type f \( -name 'Di-111' -o -name '*.so' -o -name '*.clap' \) -exec strip {} +
+          (cd dist && zip -qr Di-111_linux.zip Di-111_linux)
+          echo "highest glibc symbol version needed:"
+          objdump -T dist/Di-111_linux/Standalone/Di-111 | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1
 
       - name: Package the AppImage
         run: |
@@ -68,3 +85,9 @@ jobs:
         with:
           name: di111-linux-appimage
           path: dist/Di-111-x86_64.AppImage
+
+      - name: Upload Linux zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: di111-linux-zip
+          path: dist/Di-111_linux.zip
