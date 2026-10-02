@@ -17,15 +17,23 @@
 #include "Source/native/D110CoreNative.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 
 int main(int argc, char **argv) {
 	std::setvbuf(stdout, nullptr, _IONBF, 0);
-	const char *nvramDir = argc > 1 ? argv[1] : "C:/temp/claude/mame_factory_reset_nvram";
+	// ROM folder: D110_ROM_DIR (no default - it is a user choice, not tied to a plugin format).
+	const char *romEnv = std::getenv("D110_ROM_DIR");
+	if (romEnv == nullptr) {
+		std::printf("set D110_ROM_DIR to the folder holding the ROM files\n");
+		return 2;
+	}
+	const std::string romDir = romEnv;
+	const char *nvramDir = argc > 1 ? argv[1] : "/tmp/native_stress_nvram";
 
 	D110CoreNative core;
-	if (!core.start("C:/Program Files/Common Files/VST3/D-110 Data", nvramDir)) return 1;
+	if (!core.start(romDir, nvramDir)) return 1;
 	// Control group: pass "stub" as the 2nd arg to run the exact same note pattern under
 	// La32Stub instead, to tell "this pattern breaks the firmware regardless of policy" apart
 	// from "this pattern specifically breaks La32Ramps".

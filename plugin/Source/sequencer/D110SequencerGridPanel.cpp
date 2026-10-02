@@ -1,4 +1,5 @@
 #include "D110SequencerGridPanel.h"
+#include "SequencerTransportMenu.h"
 
 #include <algorithm>
 #include <cmath>
@@ -203,9 +204,10 @@ void D110SequencerGridPanel::buildLayout() {
 	auto P = [&](int id, float frac, float widthFrac) { return stackedTransport ? cell[id] : colT(frac, widthFrac); };
 	addButton(P(0, 0.000f, 0.060f), [] { return juce::String("STOP"); },
 	          [this] { engine().stop(); processor.midiPanic(); }, [this] { return !engine().isPlaying(); },
-	          {}, [this] { processor.midiPanic(); });
+	          {}, [this] { d110seq::showTransportMenu(processor); });
 	addButton(P(1, 0.060f, 0.060f), [] { return juce::String("PLAY"); }, [this] { engine().play(); },
-	          [this] { return engine().isPlaying() && !engine().isRecording(); });
+	          [this] { return engine().isPlaying() && !engine().isRecording(); },
+	          {}, [this] { d110seq::showTransportMenu(processor); });
 	// REC records into the track selected here (a normal panel arms tracks by hand; the grid
 	// has no ARM button, so the selected track is the armed one).
 	addButton(P(2, 0.120f, 0.060f), [] { return juce::String("REC"); },

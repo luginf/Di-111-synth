@@ -847,7 +847,7 @@ void D110Panel::showOptionsMenu()
 	m.addItem(108, juce::String(D110AudioProcessor::kExtendedPolyphonyLabel)
 	                   + " (real hardware: 32) - see UTILITY tab", false, false);
 	m.addItem(105, D110AudioProcessor::nvramIsBesideRoms()
-	                   ? juce::String("Firmware memory: in the D-110 Data folder")
+	                   ? juce::String("Firmware memory: beside the ROMs")
 	                   : juce::String("Firmware memory: in app data (data folder not writable)"),
 	          false, false);
 	// There is no Factory Reset command here any more, and deliberately so: the D-110 has
@@ -3353,7 +3353,7 @@ void D110EditorPane::buttonPressed(int id) {
 	// getTopLevelComponent() keeps both call sites reading the same thing rather than one
 	// relying on that distinction staying true.
 	if (id == 8) { showLaReferencePopup(getTopLevelComponent()->getWidth()); return; }
-	if (id == 9) { processor.midiPanic(); return; }
+	if (id == 9) { processor.midiPanicHard(); return; }
 	if (id == 20) { processor.storeToneFromPart(part, toneSlot); return; }
 	if (id == 21) { processor.auditionTone(part, toneSlot); return; }
 	if (id == 22) { lockPartials = !lockPartials; layout(); repaint(); return; }
@@ -4158,7 +4158,7 @@ D110AudioProcessorEditor::D110AudioProcessorEditor(D110AudioProcessor &p)
 		const float s = float(getWidth()) / float(D110Panel::currentRefW(!compact));
 		const int targetW = juce::roundToInt(float(D110Panel::currentRefW(compact)) * s);
 		constrainer.setFixedAspectRatio(double(D110Panel::currentRefW(compact)) / double(totalRefHeight()));
-		constrainer.setSizeLimits(900, 100, D110Panel::currentRefW(compact) * 2, 4000);
+		constrainer.setSizeLimits(kMinWindowWidth, 100, D110Panel::currentRefW(compact) * 2, 4000);
 		card.setVisible(!compact);
 		setSize(targetW, int(totalRefHeight() * (float(targetW) / float(D110Panel::currentRefW(compact))) + 0.5f));
 		repaint();
@@ -4167,11 +4167,17 @@ D110AudioProcessorEditor::D110AudioProcessorEditor(D110AudioProcessor &p)
 	// The drawer is closed when the window opens: the plugin is the unit, the editor is an
 	// addition to it, and until asked for it takes no space.
 	constrainer.setFixedAspectRatio(double(D110Panel::currentRefW(processor.getCompactPanelMode())) / double(totalRefHeight()));
-	constrainer.setSizeLimits(900, 100, D110Panel::currentRefW(processor.getCompactPanelMode()) * 2, 4000);
+	constrainer.setSizeLimits(kMinWindowWidth, 100, D110Panel::currentRefW(processor.getCompactPanelMode()) * 2, 4000);
 	setConstrainer(&constrainer);
 
 	setResizable(true, true);
 	setSize(1500, int(totalRefHeight() * (1500.0f / float(D110Panel::currentRefW(processor.getCompactPanelMode()))) + 0.5f));
+	juce::MessageManager::callAsync([safe = juce::Component::SafePointer<D110AudioProcessorEditor>(this)] {
+		auto *self = safe.getComponent();
+		if (self == nullptr || self->getWidth() >= kStartWindowWidth) return;
+		const float refW = float(D110Panel::currentRefW(self->processor.getCompactPanelMode()));
+		self->setSize(kStartWindowWidth, int(self->totalRefHeight() * (float(kStartWindowWidth) / refW) + 0.5f));
+	});
 
 	// Zoom presets (Utility tab) call this to resize precisely, the same way a manual
 	// drag-resize already does reliably - see D110EditorPane::onRequestZoom's own comment for

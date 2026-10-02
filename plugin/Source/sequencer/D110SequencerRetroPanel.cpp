@@ -1,4 +1,5 @@
 #include "D110SequencerRetroPanel.h"
+#include "SequencerTransportMenu.h"
 
 #include <cmath>
 
@@ -514,6 +515,8 @@ bool D110SequencerRetroPanel::keyPressed(const juce::KeyPress &key) {
 void D110SequencerRetroPanel::mouseDown(const juce::MouseEvent &e) {
 	grabKeyboardFocus();
 	const auto p = e.position;
+	if (e.mods.isPopupMenu() && stopBounds.contains(p)) { d110seq::showTransportMenu(processor); return; }
+	if (e.mods.isPopupMenu() && playBounds.contains(p)) { d110seq::showTransportMenu(processor); return; }
 	if (stopBounds.contains(p)) { pressStop(); return; }
 	if (playBounds.contains(p)) { pressPlay(); return; }
 	if (recBounds.contains(p)) { pressRec(); return; }

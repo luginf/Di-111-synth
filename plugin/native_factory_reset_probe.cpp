@@ -6,14 +6,24 @@
 #include "Source/native/D110CoreNative.h"
 
 #include <cstdio>
+#include <cstdlib>
+#include <string>
 #include <cstring>
 
 int main(int argc, char **argv) {
 	std::setvbuf(stdout, nullptr, _IONBF, 0);
-	const char *nvramDir = argc > 1 ? argv[1] : "C:/temp/claude/native_factory_reset_test";
+	// Usage: native_factory_reset_probe <romFolder> [nvramDir] - the ROM folder is whichever one the app is
+	// configured to use (no default: it is a user choice, not tied to any plugin format). A fresh, empty
+	// nvramDir is the point (a virgin unit).
+	if (argc < 2) {
+		std::printf("usage: %s <romFolder> [nvramDir]\n", argv[0]);
+		return 2;
+	}
+	const std::string romDir = argv[1];
+	const char *nvramDir = argc > 2 ? argv[2] : "/tmp/native_factory_reset_test";
 
 	D110CoreNative core;
-	if (!core.start("C:/Program Files/Common Files/VST3/D-110 Data", nvramDir)) {
+	if (!core.start(romDir, nvramDir)) {
 		std::printf("failed to start\n");
 		return 1;
 	}

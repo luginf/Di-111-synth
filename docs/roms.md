@@ -4,9 +4,7 @@ See the [README](../README.md#get-started) for the short version. This is the de
 what each file is for, how to confirm you have the right dump, and how to reset the
 firmware back to factory settings if you ever need to.
 
-You can get the D-110 roms at this location: 
-- [https://mdk.cab/game/d110](https://mdk.cab/game/d110)
-- or directly there: [https://mdk.cab/download/standalone/d110.7z](https://mdk.cab/download/standalone/d110.7z)
+You can get them on for example https://mdk.cab/, search for d110.7z
 
 
 ## Where to put the files
@@ -17,27 +15,23 @@ Checked in this order - whichever one actually has ROMs in it wins:
    right-click to go back to automatic detection). Takes effect on the next power-on. If no ROMs
    were found at all, the same folder picker also pops up on its own as soon as the editor
    opens and takes effect immediately, without a manual power cycle.
-2. **Colocated with the shared VST3 folder** - the default, and what every existing install
-   already uses:
-   - Windows: `C:\Program Files\Common Files\VST3\D-110 Data\`
-   - macOS: `~/Library/Audio/Plug-Ins/VST3/D-110 Data/`
-   - Linux: `~/.vst3/D-110_Data/`
-3. **The plugin's own app-data folder** - makes more sense for the **Standalone** build, which
-   has nothing to do with VST3 or DAWs and may not even have a `~/.vst3` folder to put things
-   in; the same per-OS root the NVRAM fallback and the Standalone's settings file already use:
-   - Windows: `%APPDATA%\D-110 Emulator\D-110 Data\`
-   - macOS: `~/Library/Application Support/D-110 Emulator/D-110 Data/`
-   - Linux: `~/.config/D-110 Emulator/D-110 Data/`
-4. **Loose, directly beside the VST3 bundle itself** (the shared VST3 folder from #2, but with
-   no `D-110 Data` subfolder at all - e.g. straight in `~/.vst3/` on Linux) **or directly beside
-   the Standalone binary** - for anyone who'd rather not create a subfolder at all. Only the
-   files themselves are picked up from there (copied into the `D-110 Data` location from #2 the
-   first time they're found) - nothing else in that shared folder is ever touched or scanned
-   recursively.
+2. **The default: Di-111's own folder** - one neutral per-user location, shared by every format (VST3,
+   CLAP, AU, Standalone) rather than tied to one of them. The firmware memory (`nvram/`) sits beside the ROMs:
+   - Windows: `%APPDATA%\Di-111\roms\`
+   - macOS: `~/Library/Application Support/Di-111/roms/`
+   - Linux: `~/.config/Di-111/roms/`
+3. **Folders earlier versions used** - still found, so an existing install keeps working (and keeps its
+   NVRAM) without moving anything, as long as the ROMs are there:
+   - Colocated with the shared VST3 folder: `C:\Program Files\Common Files\VST3\D-110 Data\`,
+     `~/Library/Audio/Plug-Ins/VST3/D-110 Data/`, `~/.vst3/D-110_Data/`
+   - The older app-data folder: `%APPDATA%\D-110 Emulator\D-110 Data\`,
+     `~/Library/Application Support/D-110 Emulator/D-110 Data/`, `~/.config/D-110 Emulator/D-110 Data/`
+4. **Loose, directly beside the VST3 bundle itself** (the shared VST3 folder, but with no `D-110 Data`
+   subfolder at all - e.g. straight in `~/.vst3/` on Linux) **or directly beside the Standalone binary**.
+   Only the files themselves are picked up from there (copied into the default folder from #2 the first
+   time they're found) - nothing else in that shared folder is ever touched or scanned recursively.
 
-Either of #2/#3 works for either build (VST3 or Standalone) - the second location is just there
-so Standalone users aren't asked to dig into a VST3-specific folder for no reason. `D-110_Data`
-(underscore) is also accepted at either location, in case an older install already used it.
+`D-110_Data` (underscore) is also accepted at the older locations in #3.
 
 ## Where files are matched by name vs. by content
 

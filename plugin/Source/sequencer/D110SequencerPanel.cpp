@@ -1,4 +1,5 @@
 #include "D110SequencerPanel.h"
+#include "SequencerTransportMenu.h"
 
 #include <cmath>
 
@@ -1722,8 +1723,11 @@ void D110SequencerPanel::handleContextAction(juce::Point<float> p) {
 	if (barReadoutBounds.contains(p)) { showBarMenu(); return; }
 	if (barPrevBounds.contains(p)) { eng.gotoBar(1); repaint(); return; }
 	if (barNextBounds.contains(p)) { eng.gotoBar(eng.getBarCount()); repaint(); return; }
-	if (stopBounds.contains(p)) { processor.midiPanic(); return; }
-	if (playBounds.contains(p)) { eng.gotoBar(1); eng.play(); repaint(); return; }
+	if (stopBounds.contains(p)) { d110seq::showTransportMenu(processor); return; }
+	if (playBounds.contains(p)) {
+		d110seq::showTransportMenu(processor, [this] { engine().gotoBar(1); engine().play(); repaint(); });
+		return;
+	}
 	if (processor.supportsExtraTracks() && extraTracksZoneBounds.contains(p)) {
 		showExtraTracksMenu();
 		return;

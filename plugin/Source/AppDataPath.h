@@ -8,7 +8,13 @@
 namespace d110appdata {
 
 inline juce::File newRoot() {
+#if JUCE_MAC
+	// JUCE's userApplicationDataDirectory is ~/Library on macOS; the conventional place is Application Support.
+	return juce::File::getSpecialLocation(juce::File::userHomeDirectory)
+		.getChildFile("Library/Application Support/Di-111");
+#else
 	return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory).getChildFile("Di-111");
+#endif
 }
 
 inline juce::File legacyRoot() {

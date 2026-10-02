@@ -275,6 +275,31 @@ public:
 	bool extIntHighForTest() const { return extIntHigh_; }
 	bool la32PendingForTest() const { return bus_.la32Pending; }
 	uint64_t stuckLoopHitsForTest() const { return stuckLoopHits_; }
+
+	// Snapshot of what the firmware is doing right now, for the DEBUG log (PluginProcessor.cpp's TALLY line):
+	// when the panel dies and no note starts although MIDI keeps arriving, this says whether the CPU is parked
+	// at the dispatch wait loop, and whether any hardware slot matches the context it waits for (-1 = none, so
+	// nothing here can ever release it). Call from the thread that steps the core (the audio thread).
+	struct FirmwareDiag {
+		uint16_t pc = 0;
+		uint64_t stuckLoopHits = 0;
+		uint64_t midiDelivered = 0;
+		size_t midiPending = 0;
+		size_t rampBacklog = 0;
+		bool la32Pending = false;
+		bool extIntHigh = false;
+		int waitContext = -1;
+		int slotForContext = -1;
+		int busySlots = 0;
+		uint64_t unmatchedWaitReleases = 0;
+	};
+	FirmwareDiag firmwareDiag() const;
+	// Test hook: pretend no hardware slot ever matches the wait context, to exercise the last-resort release.
+	void setIgnoreSlotMatchForTest(bool v) { ignoreSlotMatchForTest_ = v; }
+	// Raw voice-slot table, for the same log, only worth printing while the CPU is parked at the wait loop:
+	// "slot:state/context" for every slot whose state byte is not the idle value (any other value than the two
+	// busy ones serviceStuckPolicy() recognises would show up here), then the f440[] flags that are non-zero.
+	std::string slotTableDump() const;
 	size_t rampQueueDepthForTest() const { return rampLanded_.size(); }
 
 private:
@@ -362,6 +387,17 @@ private:
 	StuckPolicy stuckPolicy_ = StuckPolicy::Off;
 	bool extIntHigh_ = false;
 	uint64_t stuckLoopHits_ = 0;
+	// How long (emulated seconds) the CPU may sit at the dispatch wait with no slot to answer it before the
+	// flag is raised by hand - see serviceStuckPolicy().
+	static constexpr double kUnmatchedWaitSeconds = 2.0;
+	// resetVoiceSlotTable() leaves the table alone until the MIDI input has been quiet this long.
+	static constexpr double kSlotResetQuietSeconds = 0.15;
+	static constexpr double kLeftWaitSeconds = 0.05;
+	double stuckWaitSince_ = -1.0;
+	double stuckWaitLastSeen_ = -1.0;
+	int stuckWaitContext_ = -1;
+	bool ignoreSlotMatchForTest_ = false;
+	uint64_t unmatchedWaitReleases_ = 0;
 	void serviceStuckPolicy();
 
 	// La32Ramps: the real hardware model, not a stub. LA32's amplitude/filter envelopes are

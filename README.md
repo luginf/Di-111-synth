@@ -1,8 +1,8 @@
-# D-110 VST Emulator (Di-111)
+# Di-111
 
-A VST3 / AU / Standalone plugin that emulates the Roland D-110 multi-timbral sound module. The
-built application is called **Di-111** (the Standalone binary, its window title and the plugin
-bundle); the repository keeps its historical name. Linux releases also ship LV2, CLAP and AppImage
+A VST3 / AU / Standalone plugin that emulates the Roland D-110 multi-timbral sound module from 1988. The
+built application is called **Di-111** (the Standalone binary, its window title, the plugin
+bundle and the AppImage); the repository is `Di-111-synth`. Linux releases also ship LV2, CLAP and AppImage
 builds, and there is an Android app (`docs/android.md`).
 
 ![screenshot](docs/D-110_vst01.jpg)
@@ -16,17 +16,20 @@ how the two halves fit together, what the extended editor drawer does, and known
 ## Get started
 
 You need your own **D-110 ROM dumps** - copyrighted Roland firmware, **not included** here.
-You can get them here: [https://mdk.cab/download/standalone/d110.7z](https://mdk.cab/download/standalone/d110.7z)
+You can get them on for example https://mdk.cab/, search for d110.7z
+
+You can learn more about the D-110 on [https://llamamusic.com/d110/](https://llamamusic.com/d110/)
 
 Put the files loose (not zipped) into:
 
-- Windows: `C:\Program Files\Common Files\VST3\D-110 Data\`
-- macOS: `~/Library/Audio/Plug-Ins/VST3/D-110 Data/`
-- Linux: `~/.vst3/D-110_Data/`
+- Windows: `%APPDATA%\Di-111\roms\`
+- macOS: `~/Library/Application Support/Di-111/roms/`
+- Linux: `~/.config/Di-111/roms/`
 
-(Using the Standalone app rather than a DAW? `%APPDATA%\D-110 Emulator\D-110 Data\` /
-`~/Library/Application Support/D-110 Emulator/D-110 Data/` / `~/.config/D-110 Emulator/D-110 Data/`
-works too - see [`docs/roms.md`](docs/roms.md).)
+The same folder serves every format (VST3, CLAP, AU, Standalone), and you can point the app at any
+other one (Utility tab, "ROM FOLDER"). Folders earlier versions used (`...\VST3\D-110 Data\`,
+`~/.vst3/D-110_Data/`, `D-110 Emulator\D-110 Data\`) keep working if that is where your ROMs already
+are - see [`docs/roms.md`](docs/roms.md).
 
 Right-click the panel to see what was recognised. Full requirements, checksums, and what to do
 if you only have `D-110_PCM.bin`/`D-110_Control.bin`: [`docs/roms.md`](docs/roms.md).

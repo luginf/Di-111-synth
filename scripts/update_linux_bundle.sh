@@ -13,8 +13,11 @@ nice -n 19 cmake --build "$BUILD" --target D110EmulatorNative_Standalone D50Emul
 
 mkdir -p "$BUNDLE"
 install_stripped() { # source destination
-    cp "$1" "$2"
-    strip "$2"
+    # Copy beside, then rename over: replacing a binary that is currently running fails with
+    # "Text file busy" when written in place, but renaming over it is fine.
+    cp "$1" "$2.new"
+    strip "$2.new"
+    mv -f "$2.new" "$2"
     echo "updated $2"
 }
 install_stripped "$BUILD/D110EmulatorNative_artefacts/Release/Standalone/Di-111" "$BUNDLE/Di-111"

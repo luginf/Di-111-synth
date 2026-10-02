@@ -623,6 +623,32 @@ private:
 // whole and the editor slides out from under it. The handle is full-width so it reads as a
 // drawer rather than a button, and sits BELOW the photograph, not on it: the unit's front has,
 // and can have, no controls the hardware does not.
+// The editor's size is locked to the aspect ratio of what it currently shows (the panel plus whichever drawers
+// are open), and the window can be dragged freely. JUCE's own fixed-aspect constraint derives the width from the
+// height whenever the height changes: with the drawers closed the content is about 4.4:1, so a 666x975 window
+// produced a 4248-pixel-wide editor that then stayed that way (measured under Xvfb, 2026-10-02) - the panel
+// zoomed and cropped, "sometimes" depending on which edge was dragged. Here the WIDTH leads: the editor takes the
+// window's width, or less if the window is too short to show that much, and never more than the window can hold.
+class FitWidthConstrainer : public juce::ComponentBoundsConstrainer {
+public:
+	void checkBounds(juce::Rectangle<int> &bounds, const juce::Rectangle<int> &old, const juce::Rectangle<int> &limits,
+	                 bool stretchingTop, bool stretchingLeft, bool stretchingBottom, bool stretchingRight) override {
+		const double aspect = getFixedAspectRatio();
+		if (aspect <= 0.0) {
+			ComponentBoundsConstrainer::checkBounds(bounds, old, limits, stretchingTop, stretchingLeft,
+			                                        stretchingBottom, stretchingRight);
+			return;
+		}
+		const int right = bounds.getRight(), bottom = bounds.getBottom();
+		int w = juce::jmin(bounds.getWidth(), juce::roundToInt(double(bounds.getHeight()) * aspect));
+		w = juce::jlimit(getMinimumWidth(), getMaximumWidth(), w);
+		const int h = juce::roundToInt(double(w) / aspect);
+		bounds.setSize(w, h);
+		if (stretchingLeft) bounds.setX(right - w);
+		if (stretchingTop) bounds.setY(bottom - h);
+	}
+};
+
 class D110AudioProcessorEditor : public juce::AudioProcessorEditor {
 public:
 	explicit D110AudioProcessorEditor(D110AudioProcessor &);
@@ -678,6 +704,13 @@ public:
 	// keyboard pane's own resize handle exactly the way this band doubles for the editor
 	// pane above it - see keyboardPaneRefH below.
 	static constexpr float kKeyboardHandleRefH = 26.0f;
+	// Narrowest the window may be dragged. The old 900 left a tall layout (drawers open, about 0.67:1) needing a
+	// 1340-pixel-high window, more than most screens have. Kept low because a window manager that ignores size
+	// hints (measured with icewm) lets the window go below it, and the editor then stays wider than the window.
+	static constexpr int kMinWindowWidth = 360;
+	// Width the window opens at: the Standalone creates it 128x128 first, which the constraint above clamps to the
+	// minimum, so without this it would open at kMinWindowWidth (it used to open at the old minimum, 900).
+	static constexpr int kStartWindowWidth = 900;
 	static constexpr float kMinKeyboardPaneRefH = 70.0f;
 	static constexpr float kMaxKeyboardPaneRefH = 400.0f;
 	// Handle band above the sequencer drawer - same slim treatment as the keyboard's, and the
@@ -731,7 +764,7 @@ private:
 	D110SequencerRetroPanel sequencerRetroPanel;
 	// Piano-roll grid editor, the third view of the same drawer - see processor.getSequencerGridMode().
 	D110SequencerGridPanel sequencerGridPanel;
-	juce::ComponentBoundsConstrainer constrainer;
+	FitWidthConstrainer constrainer;
 
 	float expansion = 0.0f;        // smoothed 0..1
 	float expansionTarget = 0.0f;  // what the click on the handle asked for

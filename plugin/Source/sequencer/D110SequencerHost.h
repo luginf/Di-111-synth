@@ -26,6 +26,10 @@ public:
 	// Right-click STOP: all-notes-off, everywhere this host can reach - the firmware/sound
 	// engine for the plugin, the direct MIDI Out port for both.
 	virtual void midiPanic() = 0;
+	// The deliberate version of the above (right-click on STOP): a host whose instrument can keep a note
+	// sounding that nothing will ever release (the D-110's firmware) clears that too. Not safe to follow
+	// immediately with PLAY on such a host, which is why a plain STOP uses midiPanic() instead.
+	virtual void midiPanicHard() { midiPanic(); }
 
 	// Where the panel's own file dialogs (Load/Save .mid, Load/Save .midiseq) should
 	// start from and remember afterwards - one shared "last folder" per host, the same one

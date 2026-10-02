@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -254,6 +255,12 @@ void D110CoreNative::serviceStuckPolicy() {
 			return;
 		}
 
+		if (ignoreSlotMatchForTest_) {
+			// test hook: no interrupt may reach the CPU, so only the last-resort release can free the wait
+			rampLanded_.clear();
+			bus_.la32Pending = false;
+			if (extIntHigh_) { cpu_.setExtIntLine(false); extIntHigh_ = false; }
+		}
 		if (!bus_.la32Pending && !rampLanded_.empty()) {
 			const auto ev = rampLanded_.front();
 			rampLanded_.pop_front();
@@ -282,15 +289,43 @@ void D110CoreNative::serviceStuckPolicy() {
 			const uint16_t pc = cpu_.pc();
 			if (pc == kStuckLoopPc || pc == kStuckLoopPcAlt) {
 				const uint8_t context = cpu_.regFile[kWaitIndexReg];
+				bool matched = false;
 				for (int n = 0; n < kNumHardwareVoices; ++n) {
 					const uint8_t busy = bus_.rams[kSlotStateTable + 2 * n];
-					if ((busy == kSlotBusyValue || busy == kSlotBusyValueAlt) &&
+					if (!ignoreSlotMatchForTest_ && (busy == kSlotBusyValue || busy == kSlotBusyValueAlt) &&
 					    bus_.rams[kSlotContextTable + 2 * n] == context) {
 						bus_.la32Status = uint8_t((n + 1) & 0x1f); // same encoding as La32Stub
 						bus_.la32Pending = true;
+						matched = true;
 						break;
 					}
 				}
+				if (matched) {
+					stuckWaitSince_ = -1.0;
+				} else {
+					if (stuckWaitSince_ < 0.0 || int(context) != stuckWaitContext_) {
+						stuckWaitSince_ = elapsedSeconds_;
+						stuckWaitContext_ = context;
+					}
+					stuckWaitLastSeen_ = elapsedSeconds_;
+					if (elapsedSeconds_ - stuckWaitSince_ > kUnmatchedWaitSeconds && context < kVoiceFlagSpan) {
+						// Last resort, measured on a real session (Alan's DEBUG logs, 2026-10-02): the CPU parked at
+						// this loop for 30+ s waiting for f440[ctx] with NO hardware slot carrying that context (e.g.
+						// waitContext=5 slotForContext=-1 busySlots=0, no LA32 interrupt or ramp pending), so nothing
+						// above could ever answer it - and with the mainline stuck here the front panel, the LCD and
+						// every later note were dead until a power cycle. Raise just this one flag, the way
+						// StuckPolicy::PokeRam does for all of them: the firmware moves on, at the price of that
+						// voice's own handler never having run.
+						bus_.rams[kVoiceFlagBase + context] |= 0x80;
+						++unmatchedWaitReleases_;
+						stuckWaitSince_ = -1.0;
+					}
+				}
+			} else if (stuckWaitSince_ >= 0.0 && elapsedSeconds_ - stuckWaitLastSeen_ > kLeftWaitSeconds) {
+				// Not seen in the loop for a while: it really did move on. A single sample outside it proves
+				// nothing - the serial-receive interrupt handler runs for a good share of every MIDI tick, and
+				// resetting on each such sample is what kept this timer from ever reaching its limit.
+				stuckWaitSince_ = -1.0;
 			}
 		}
 
@@ -438,6 +473,15 @@ void D110CoreNative::releaseStuckNoteContexts() {
 }
 
 void D110CoreNative::resetVoiceSlotTable() {
+	// The panel's STOP repeats this for 1.5 s (see PluginProcessor::midiPanic()), so a PLAY pressed right after
+	// it lands inside that window. The firmware writes a note's slot just before it parks at the dispatch wait
+	// for it (edc0[slot], ee01[slot] = context, docs/la32_interface.md); wiping the table in that gap leaves it
+	// waiting for a context that no slot backs any more - DEBUG logs of 2026-10-02 show exactly that after a
+	// quick stop/play: all slots idle, CPU at 0x29E9/0x29EE, front panel and every later note dead. So only wipe
+	// while the firmware is quiet: no MIDI byte pushed for a moment, and not parked at that wait right now.
+	const uint16_t pc = cpu_.pc();
+	if (pc == kStuckLoopPc || pc == kStuckLoopPcAlt) return;
+	if (lastMidiByteSeconds_ >= 0.0 && elapsedSeconds_ - lastMidiByteSeconds_ < kSlotResetQuietSeconds) return;
 	for (int slot = 0; slot < kNumHardwareVoices; ++slot)
 		bus_.rams[size_t(kSlotStateTable) + size_t(slot) * 2] = kSlotIdleValue;
 }
@@ -628,6 +672,45 @@ bool D110CoreNative::getRam(u8 *out) const {
 
 void D110CoreNative::pokeRamForTest(size_t offset, u8 value) {
 	if (offset < bus_.rams.size()) bus_.rams[offset] = value;
+}
+
+D110CoreNative::FirmwareDiag D110CoreNative::firmwareDiag() const {
+	FirmwareDiag d;
+	d.pc = cpu_.pc();
+	d.stuckLoopHits = stuckLoopHits_;
+	d.midiDelivered = midiDelivered_;
+	d.unmatchedWaitReleases = unmatchedWaitReleases_;
+	d.midiPending = midiQueuePendingForTest();
+	d.rampBacklog = rampLanded_.size();
+	d.la32Pending = bus_.la32Pending;
+	d.extIntHigh = extIntHigh_;
+	d.waitContext = cpu_.regFile[kWaitIndexReg];
+	for (int n = 0; n < kNumHardwareVoices; ++n) {
+		const uint8_t busy = bus_.rams[kSlotStateTable + 2 * n];
+		if (busy != kSlotBusyValue && busy != kSlotBusyValueAlt) continue;
+		++d.busySlots;
+		if (d.slotForContext < 0 && bus_.rams[kSlotContextTable + 2 * n] == d.waitContext) d.slotForContext = n;
+	}
+	return d;
+}
+
+std::string D110CoreNative::slotTableDump() const {
+	char buf[32];
+	std::string out = "slots(state/ctx):";
+	for (int n = 0; n < kNumHardwareVoices; ++n) {
+		const uint8_t state = bus_.rams[kSlotStateTable + 2 * n];
+		if (state == kSlotIdleValue) continue;
+		std::snprintf(buf, sizeof buf, " %d:%02x/%d", n, state, int(bus_.rams[kSlotContextTable + 2 * n]));
+		out += buf;
+	}
+	out += "  flags(f440):";
+	for (int i = 0; i < kVoiceFlagSpan; ++i) {
+		const uint8_t v = bus_.rams[kVoiceFlagBase + i];
+		if (v == 0) continue;
+		std::snprintf(buf, sizeof buf, " %d=%02x", i, v);
+		out += buf;
+	}
+	return out;
 }
 
 bool D110CoreNative::getLcd(u8 *out) const {

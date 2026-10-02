@@ -92,7 +92,7 @@ int main() {
 	std::printf("  activePartials=%d busySlots=%d\n", activeBefore, busyBefore);
 
 	// The actual production code path: the Utility tab's MIDI PANIC button calls exactly this.
-	proc.midiPanic();
+	proc.midiPanicHard();
 	render(proc, 0.3); // releaseStuckNoteContexts() itself is one-shot/immediate, but the
 	                   // resulting note-off still has to drain through popNoteEvent() into
 	                   // synth->playMsgOnPart() and mt32emu's own (near-instant, not literally
@@ -114,7 +114,7 @@ int main() {
 	std::printf("  busySlots=%d after the full repeat window\n", busyAfter);
 
 	// A second panic on an already-quiet instrument must not be destructive/crash.
-	proc.midiPanic();
+	proc.midiPanicHard();
 	render(proc, 0.3);
 	check(proc.getCore().isRunning(), "a second panic on an already-silent instrument is harmless");
 

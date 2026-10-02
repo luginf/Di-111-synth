@@ -91,3 +91,32 @@ cmake --build build --config Release
 
 On Windows, everything is built with the static runtime (`/MT`) to match MAME's release
 libraries.
+
+## Linux AppImage
+
+An AppImage runs against the C library of the machine it is started on, so it has to be **built on an old
+one**: built on a recent system it fails on older distributions with `version 'GLIBC_2.38' not found`
+(that is what the AppImage catalog's automatic test reported for the first, hand-made one). The CI job
+`.github/workflows/build-linux-appimage.yml` therefore builds in an `ubuntu:22.04` container (the oldest
+Ubuntu LTS still supported - move it forward when that goes out of support) and packs the Standalone with
+`scripts/make_appimage.sh`.
+
+To do the same locally you need a 22.04 environment, for example Docker (your user must be in the `docker`
+group):
+
+```
+docker run --rm -v "$PWD":/src -w /src ubuntu:22.04 bash -c '
+  apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    build-essential cmake git curl ca-certificates file binutils pkg-config libasound2-dev \
+    libjack-jackd2-dev libfreetype-dev libfontconfig1-dev libx11-dev libxcomposite-dev \
+    libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev libxrender-dev libglu1-mesa-dev \
+    mesa-common-dev libcurl4-openssl-dev libgtk-3-dev libwebkit2gtk-4.1-dev &&
+  cmake -S plugin -B /tmp/b -DCMAKE_BUILD_TYPE=Release &&
+  cmake --build /tmp/b --target D110EmulatorNative_Standalone -j"$(nproc)" &&
+  bash scripts/make_appimage.sh --name Di-111 --binary /tmp/b/D110EmulatorNative_artefacts/Release/Standalone/Di-111 \
+    --icon docs/app_icon_256.png --comment "Multi-timbral sound module emulator" \
+    --bundle libjack.so.0 --bundle libdb-5.3.so --out dist'
+```
+
+The script prints the highest glibc version the packed binary needs; on a 22.04 build it must not exceed 2.35.
+

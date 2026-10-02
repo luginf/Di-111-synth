@@ -552,16 +552,25 @@ juce::File D110AudioProcessor::getAutoRomFolder() {
 	const auto appData = resolveNamedFolder(d110appdata::newRoot(), "D-110 Data");
 	const auto appDataLegacy = resolveNamedFolder(d110appdata::legacyRoot(), "D-110 Data");
 
+#if JUCE_ANDROID
+	const auto defaultRoms = vst3Colocated;
+#else
+	// The default for a fresh install: a neutral per-user folder shared by every format (VST3, CLAP, AU,
+	// Standalone), not one that belongs to a plugin format - ~/.config/Di-111/roms on Linux, %APPDATA%\Di-111\roms
+	// on Windows, ~/Library/Application Support/Di-111/roms on macOS. The folders earlier versions used stay
+	// valid, and are still picked up below as long as that is where the ROMs (and the NVRAM beside them) are.
+	const auto defaultRoms = d110appdata::newRoot().getChildFile("roms");
+	if (folderHasRoms(defaultRoms)) return defaultRoms;
+#endif
+
 	if (folderHasRoms(vst3Colocated)) return vst3Colocated;
 	if (folderHasRoms(appData)) return appData;
 	if (folderHasRoms(appDataLegacy)) return appDataLegacy;
 
-	// Neither dedicated folder has anything yet - one last look for ROMs sitting loose right
-	// next to the VST3 bundle or the Standalone binary itself, copied in if found.
-	materializeLooseRomsIfNeeded(vst3Colocated);
-	if (folderHasRoms(vst3Colocated)) return vst3Colocated;
-
-	return vst3Colocated;
+	// Nothing has ROMs yet - one last look for ROMs sitting loose right next to the VST3 bundle or the
+	// Standalone binary itself, copied into the default folder if found.
+	materializeLooseRomsIfNeeded(defaultRoms);
+	return defaultRoms;
 }
 
 juce::String D110AudioProcessor::getCustomRomFolder() {
@@ -1445,6 +1454,20 @@ void D110AudioProcessor::processBlock(juce::AudioBuffer<float> &buffer, juce::Mi
 			     << "% missed)  enginePartStates=0x" << juce::String::toHexString(int(partStates))
 			     << "  abortFallbackCount=" << juce::int64(engineAbortFallbackCount())
 			     << "  serialOverrunCount=" << juce::int64(core.serialOverrunCount()) << juce::newLine;
+#ifdef D110_NATIVE_CORE
+			{
+				const auto fw = core.firmwareDiag();
+				line << "    firmware: pc=0x" << juce::String::toHexString(int(fw.pc))
+				     << " stuckLoopHits=" << juce::int64(fw.stuckLoopHits)
+				     << " midiDelivered=" << juce::int64(fw.midiDelivered) << " midiPending=" << int(fw.midiPending)
+				     << " la32Pending=" << int(fw.la32Pending) << " extIntHigh=" << int(fw.extIntHigh)
+				     << " rampBacklog=" << int(fw.rampBacklog) << " waitContext=" << fw.waitContext
+				     << " slotForContext=" << fw.slotForContext << " busySlots=" << fw.busySlots
+				     << " unmatchedWaitReleases=" << juce::int64(fw.unmatchedWaitReleases) << juce::newLine;
+				if (fw.pc == 0x29E9 || fw.pc == 0x29EE)
+					line << "    " << juce::String(core.slotTableDump()) << juce::newLine;
+			}
+#endif
 			MidiLogEntry log[16];
 			const int n = getMidiLog(log, 16);
 			for (int i = 0; i < n; ++i)
@@ -2234,7 +2257,11 @@ void D110AudioProcessor::stepPatch(int direction) {
 	pendingShortMessages.push_back(message);
 }
 
-void D110AudioProcessor::midiPanic() {
+void D110AudioProcessor::midiPanic() { midiPanicImpl(false); }
+
+void D110AudioProcessor::midiPanicHard() { midiPanicImpl(true); }
+
+void D110AudioProcessor::midiPanicImpl(bool resetSlotTable) {
 	std::vector<juce::uint8> firmwareBytes;
 	std::vector<MT32Emu::Bit32u> engineMessages;
 	firmwareBytes.reserve(16 * 2 * 3);
@@ -2268,7 +2295,8 @@ void D110AudioProcessor::midiPanic() {
 	// outright. getSampleRate() is safe to read from the message thread here: it only ever
 	// changes via prepareToPlay(), and a stale/mid-update read costs at most a slightly
 	// off-length repeat window, never a crash.
-	pendingSlotTableResetSamplesRemaining.store(int(getSampleRate() * 1.5), std::memory_order_relaxed);
+	if (resetSlotTable)
+		pendingSlotTableResetSamplesRemaining.store(int(getSampleRate() * 1.5), std::memory_order_relaxed);
 
 	// A stuck note is far more annoying on real external gear than in the internal engine -
 	// there's no "stop the plugin" to fall back on - so panic reaches the direct MIDI Out port

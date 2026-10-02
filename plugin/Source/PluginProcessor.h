@@ -650,7 +650,16 @@ public:
 	// MIDI channels, not just the factory Part 1-8/Rhythm map, since channels can be
 	// reassigned. Safe to call from the message thread (a button click) - queued the same
 	// way stepPatch()'s program changes already are, not sent directly.
+	// What the sequencer's STOP calls (D110SequencerHost): CC64/CC123 on every channel, the engine's own
+	// note-offs, and the direct MIDI Out. It does NOT touch the firmware's voice-slot table - see midiPanicHard().
 	void midiPanic() override;
+	// The explicit MIDI PANIC (Utility tab): everything midiPanic() does, plus clearing every LA32 voice slot
+	// behind the firmware's back for 1.5 s, which frees notes the firmware itself never releases. That is NOT
+	// safe while the firmware is busy: DEBUG logs of 2026-10-02 show a quick STOP then PLAY leaving it wedged
+	// (all slots idle, CPU looping in the voice-chain walk or parked at the dispatch wait, front panel dead until
+	// a power cycle), hence the split.
+	void midiPanicHard() override;
+	void midiPanicImpl(bool resetSlotTable);
 
 	// --- the extended editor ---------------------------------------------------
 	// Everything the drawer edits goes to the INSTRUMENT, as a Roland DT1 into its own
