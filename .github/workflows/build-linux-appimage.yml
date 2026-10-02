@@ -70,6 +70,8 @@ jobs:
 
       - name: Package the AppImage
         run: |
+          # the container's git refuses a workspace owned by another user ("dubious ownership")
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           VERSION=$(git describe --tags --always)
           bash scripts/make_appimage.sh \
             --name Di-111 \
