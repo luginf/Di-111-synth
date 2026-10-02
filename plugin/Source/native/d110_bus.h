@@ -63,7 +63,9 @@ public:
 	// byte at the last offset, exactly matching D110Core::resolveDevices()'s m_cardTap.
 	static constexpr int kCardStatusOffset = 0x7fff;
 	static constexpr u8 kCardAbsentByte = 0xff;
-	bool cardInserted = false;
+	// The memory card starts seated in its slot (Alan, 2026-10-02): the panel draws it there, and a unit that has
+	// never been touched does not have a card lying on a table. Ejecting it is an explicit act of the user.
+	bool cardInserted = true;
 	bool cardWriteProtect = false;
 	u8 cardStatusByte() const { return cardWriteProtect ? 0xfe : 0xff; }
 

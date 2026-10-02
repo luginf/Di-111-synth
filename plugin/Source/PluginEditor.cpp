@@ -1013,8 +1013,9 @@ void drawBox(juce::Graphics &g, juce::Rectangle<float> r, bool highlight) {
 	g.drawRoundedRectangle(r.reduced(0.5f), 3.0f, 1.0f);
 }
 
-// Roland's pan: 0 - hard right, 7 - centre, 14 - hard left. The unit writes it as distance
-// and side - "3>" is three steps to the right (docs/factory_defaults.md).
+// The D-110's pan: 0 - hard left, 7 - centre, 14 - hard right (confirmed on a real unit: "7>" is hard left; the
+// MT-32 reads it the other way round). The unit writes it as distance and side - "3>" is three steps to the
+// LEFT, "<3" three to the right (docs/factory_defaults.md).
 juce::String panText(int v) {
 	const int off = v - 7;
 	if (off == 0) return "C";

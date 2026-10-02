@@ -945,6 +945,11 @@ bool D110AudioProcessor::openSynthIfReady() {
 		MT32Emu::ROMImage::freeROMImage(newPcmImage);
 		return false;
 	}
+	// The D-110 pans the other way round from the MT-32 this engine was written for: confirmed on a real D-110
+	// (Alan, 2026-10-02) - a Pan of "7>" (byte 0) is hard LEFT, "<7" (byte 14) hard right, so MIDI CC10 0 =
+	// left as everywhere else. munt's default is the MT-32 reading, 0 = hard right. Partial pan only (voices and
+	// the Rhythm Setup's own pan); the reverb is not touched.
+	newSynth->setReversedStereoEnabled(true);
 	newSynth->setReverbEnabled(reverbEnabledParam == nullptr || reverbEnabledParam->load() > 0.5f);
 
 	// Built here rather than via rebuildSampleRateConverter(), so the fully-formed engine -
@@ -3185,10 +3190,12 @@ void D110AudioProcessor::setStateInformation(const void *data, int sizeInBytes) 
 			writeNvramFiles(rams, memcs);
 	}
 
-	// A project older than this feature never ejected the card, so by default it is in place.
-	// Its contents already sit in the file above, and the core picks them up at power-on even
-	// with the card out - see D110CoreType::osdApplyCard.
-	core.setCardInserted(xml->getIntAttribute("cardInserted", 1) != 0);
+	// The card always starts seated in its slot (Alan, 2026-10-02): a card lying on the drawer when the window
+	// opens looks like a leftover, so an "ejected" state saved earlier is deliberately NOT restored (the
+	// attribute is still written, but only the user's click on the slot takes the card out, for that session).
+	// Its contents already sit in the file above, and the core picks them up at power-on even with the card
+	// out - see D110CoreType::osdApplyCard.
+	core.setCardInserted(true);
 	core.setCardWriteProtect(xml->getIntAttribute("cardWriteProtect", 0) != 0);
 
 	// The on-screen test keyboard's own config - a project saved before this existed simply

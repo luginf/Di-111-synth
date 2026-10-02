@@ -4,7 +4,7 @@ See the [README](../README.md#get-started) for the short version. This is the de
 what each file is for, how to confirm you have the right dump, and how to reset the
 firmware back to factory settings if you ever need to.
 
-You can get them on for example https://mdk.cab/, search for d110.7z
+You can get the D-110 roms at https://mdk.cab/ search for d110.7z
 
 
 ## Where to put the files

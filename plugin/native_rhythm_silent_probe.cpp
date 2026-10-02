@@ -3,6 +3,9 @@
 #include "Source/PluginProcessor.h"
 
 #include <cstdio>
+#include <fstream>
+#include <sstream>
+#include <cmath>
 #include <string>
 #include <algorithm>
 #include <cstdlib>
@@ -154,6 +157,99 @@ int main() {
 			else render(proc, 1.0);
 		}
 		std::printf("cycles with a wedge: %d/%d\n", wedges, cycles);
+	}
+	if (std::getenv("RAWFILE")) {
+		// Plays a pre-flattened MIDI file ("<ms> <hex bytes>" per line) straight into the firmware, the way a
+		// real D-110 would receive it from a sequencer, and shows what happens to each part's tone at chosen times.
+		struct Ev { double ms; std::vector<juce::uint8> bytes; };
+		std::vector<Ev> evs;
+		{
+			std::ifstream in(std::getenv("RAWFILE"));
+			std::string line;
+			while (std::getline(in, line)) {
+				std::istringstream ls(line);
+				double ms; ls >> ms;
+				std::vector<juce::uint8> b; unsigned v;
+				while (ls >> std::hex >> v) b.push_back(juce::uint8(v));
+				evs.push_back({ ms, b });
+			}
+		}
+		auto show = [&](const char *when) {
+			std::vector<uint8_t> ram(D110CoreType::kRamSize, 0);
+			proc.getCore().getRam(ram.data());
+			std::printf("[%s] channels(1-16) parts1-8,R:", when);
+			for (int i = 0; i < 9; ++i) std::printf(" %d", ram[size_t(D110CoreType::kRamSystem + 13 + i)] + 1);
+			std::printf("\n   tone group/number per part:");
+			for (int p = 0; p < 8; ++p)
+				std::printf("  P%d=%d/%d", p + 1, ram[size_t(0x2000 + 16 * p)], ram[size_t(0x2000 + 16 * p + 1)]);
+			std::printf("\n   instrument names (engine):");
+			for (int p = 0; p < 8; ++p) {
+				const auto lcd = proc.getLcdSnapshot();
+				std::string nm; for (int i = 2; i < 16; ++i) nm += char(lcd.text[1][i]);
+				while (!nm.empty() && nm.back() == ' ') nm.pop_back();
+				std::printf("  P%d=%s", p + 1, nm.c_str());
+				proc.selectNextPart();
+			}
+			std::printf("\n");
+		};
+		const double stopMs = std::getenv("RAWSTOP") ? std::atof(std::getenv("RAWSTOP")) : 14000.0;
+		const double sr = kSampleRate;
+		size_t next = 0;
+		double nextShow[] = { 1500.0, 11500.0, 12500.0 };
+		int shown = 0;
+		juce::AudioBuffer<float> buf(2, kBlock);
+		for (double blockStartMs = 0; blockStartMs < stopMs; blockStartMs += kBlock * 1000.0 / sr) {
+			juce::MidiBuffer mb;
+			const double blockEndMs = blockStartMs + kBlock * 1000.0 / sr;
+			while (next < evs.size() && evs[next].ms < blockEndMs) {
+				const int pos = juce::jlimit(0, kBlock - 1, int((evs[next].ms - blockStartMs) * sr / 1000.0));
+				if (evs[next].bytes.size() > 0 && evs[next].bytes[0] == 0xF0)
+					mb.addEvent(juce::MidiMessage(evs[next].bytes.data(), int(evs[next].bytes.size())), pos);
+				else
+					mb.addEvent(juce::MidiMessage(evs[next].bytes.data(), int(evs[next].bytes.size())), pos);
+				++next;
+			}
+			buf.clear();
+			proc.processBlock(buf, mb);
+			if (shown < 3 && blockEndMs >= nextShow[shown]) { char w[40]; std::snprintf(w, sizeof w, "t=%.1fs", blockEndMs / 1000.0); show(w); ++shown; }
+		}
+	}
+	if (std::getenv("CARD")) {
+		// An "ejected" state saved earlier must not bring the card back out.
+		proc.getCore().setCardInserted(false);
+		juce::MemoryBlock state;
+		proc.getStateInformation(state);
+		D110AudioProcessor other;
+		other.prepareToPlay(kSampleRate, kBlock);
+		other.getCore().setCardInserted(false);
+		other.setStateInformation(state.getData(), int(state.getSize()));
+		std::printf("card after restoring a state saved with the card ejected: %s\n",
+		            other.getCore().cardInserted() ? "inserted" : "OUT");
+	}
+	if (std::getenv("PAN")) {
+		// Left/right balance of each part on its own channel, at the pan bytes in RAM.
+		std::vector<uint8_t> ram(D110CoreType::kRamSize, 0);
+		proc.getCore().getRam(ram.data());
+		for (int part = 0; part < 8; ++part) {
+			const int panByte = ram[size_t(0x2000 + 16 * part + 9)];
+			double l = 0, r = 0;
+			juce::MidiBuffer on;
+			on.addEvent(juce::MidiMessage::noteOn(2 + part, 60, (juce::uint8)100), 0);
+			juce::AudioBuffer<float> buf(2, kBlock);
+			for (int b = 0; b < 40; ++b) {
+				buf.clear();
+				juce::MidiBuffer none;
+				proc.processBlock(buf, b == 0 ? on : none);
+				for (int i = 0; i < kBlock; ++i) {
+					l += double(buf.getSample(0, i)) * buf.getSample(0, i);
+					r += double(buf.getSample(1, i)) * buf.getSample(1, i);
+				}
+			}
+			juce::MidiBuffer off;
+			off.addEvent(juce::MidiMessage::noteOff(2 + part, 60), 0);
+			render(proc, 1.5, &off);
+			std::printf("part %d: pan byte %2d  ->  %3.0f %% right\n", part + 1, panByte, 100.0 * std::sqrt(r) / std::max(1e-9, std::sqrt(l) + std::sqrt(r)));
+		}
 	}
 	if (std::getenv("HOLD_PANIC")) {
 		// A held note, then the sequencer's STOP panic (midiPanic) vs the explicit one (midiPanicHard).
