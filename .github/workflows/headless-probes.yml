@@ -1,0 +1,25 @@
+name: Headless probes
+
+# ROM-free tests only (sequencer, soundbanks, pitch bend guard). Same trigger policy as the
+# other workflows: manual, or the ci/* branch - never every push to main.
+on:
+  workflow_dispatch:
+  push:
+    branches: [ci/windows-macos-builds, ci/linux-build]
+
+jobs:
+  probes:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ pkg-config libasound2-dev libfreetype6-dev libfontconfig1-dev \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxext-dev libgl1-mesa-dev libcurl4-openssl-dev
+      - name: Configure
+        run: cmake -B plugin/build -S plugin -DCMAKE_BUILD_TYPE=Release
+      - name: Build probes
+        run: cmake --build plugin/build --target d110_sequencer_probe d110_soundbank_probe d110_pitch_bend_guard_probe -j4
+      - name: Run
+        run: ctest --test-dir plugin/build --output-on-failure

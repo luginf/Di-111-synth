@@ -1,12 +1,12 @@
-// Восстановление настоящей батарейной памяти прибора после того, как резкий обрыв питания
-// застал файл прямо во время записи и обнулил его: резерв партиалов 0 вместо 32, каналы
-// все 0 вместо 1..9, у каждой партии тон 0/0 - ровно то, что видно на приборе как "все
-// партии пустые, кроме первой, а там AcouPiano1" (группа 0, номер 0).
+// Restores the instrument's real battery-backed memory after an abrupt power loss caught
+// the file mid-write and zeroed it: partial reserve 0 instead of 32, channels all 0 instead
+// of 1..9, every part with tone 0/0 - exactly what shows on the instrument as "all parts
+// empty except the first, which has AcouPiano1" (group 0, number 0).
 //
-// Идёт ТЕМ ЖЕ ПУТЁМ, что и сам плагин - через D110AudioProcessor и его собственный
-// getNvramFolder()/getMachineNvramFolder(), без единого своего аргумента пути, - поэтому
-// правит именно тот файл, который откроет установленный VST3 или standalone в следующий
-// раз, а не отдельную копию для тестового стенда.
+// Goes through THE SAME PATH as the plugin itself - via D110AudioProcessor and its own
+// getNvramFolder()/getMachineNvramFolder(), without any path argument of its own - so it
+// fixes exactly the file the installed VST3 or standalone will open next time, not a
+// separate copy for the test rig.
 #include "Source/PluginProcessor.h"
 
 #include <cstdio>
@@ -47,7 +47,7 @@ int main() {
 		return 1;
 	}
 
-	// Снимок ДО - подтвердить диагноз тем же путём, каким его снял плагин.
+	// Snapshot BEFORE - confirm the diagnosis the same way the plugin took it.
 	{
 		std::vector<uint8_t> ram(D110Core::kRamSize, 0);
 		proc.getCore().getRam(ram.data());
@@ -62,7 +62,7 @@ int main() {
 	proc.getCore().factoryReset();
 	render(proc, 3.0);
 	while (proc.getCore().isResetting() || !proc.getCore().isRunning()) render(proc, 0.5);
-	render(proc, 10.0); // дать прошивке дописать банки тембров/тонов после сброса
+	render(proc, 10.0); // let the firmware finish writing the timbre/tone banks after the reset
 
 	{
 		std::vector<uint8_t> ram(D110Core::kRamSize, 0);
@@ -74,8 +74,8 @@ int main() {
 		            reserveSum, int(ram[0x2DA1]), int(ram[0x2000]), int(ram[0x2001]));
 	}
 
-	// Выключение - это единственный момент, когда MAME пишет НВР на диск. Без него весь
-	// восстановленный заводской набор остался бы только в памяти процесса.
+	// Shutdown is the only moment MAME writes the NVRAM to disk. Without it the whole
+	// restored factory set would stay only in process memory.
 	std::printf("\nвыключаю (это и есть момент записи на диск)...\n");
 	proc.setPoweredOn(false);
 	proc.releaseResources();

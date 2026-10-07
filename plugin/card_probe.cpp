@@ -1,28 +1,27 @@
-// Как прошивка D-110 узнаёт, вставлена ли карта памяти, - и вправду ли она узнаёт это так.
+// How the D-110 firmware finds out whether a memory card is inserted - and whether it really does so this way.
 //
-// Разбор ПЗУ (подпрограмма 0x770A, целиком выписана в комментарии к D110Core::kCardSize)
-// говорит: отдельной линии «карта на месте» в машине нет вовсе. Прошивка ПИШЕТ в карту
-// дополнение того, что там прочла, читает то же место обратно и смотрит, изменилось ли оно.
-// Не изменилось и читалось как 0xFF - гнездо пустое.
+// The ROM analysis (routine 0x770A, written out in full in the comment on D110Core::kCardSize)
+// says: the machine has no separate "card present" line at all. The firmware WRITES to the card the
+// complement of what it read there, reads the same place back and checks whether it changed.
+// Unchanged and read as 0xFF - the slot is empty.
 //
-// Разбор - это гипотеза, и здесь она проверяется тем, что высказывается сама прошивка. Ей
-// подставляются ЧЕТЫРЕ разных карты, отличающиеся ровно одним свойством каждая, и с экрана
-// снимается, что она о каждой сказала:
+// The analysis is a hypothesis, and here it is tested by what the firmware itself says. FOUR
+// different cards are fed to it, each differing in exactly one property, and what it said about
+// each is captured from the screen:
 //
-//   пустое гнездо (вся карта 0xFF)      ожидается "Card Not Ready"
-//   карта из нулей (так MAME и грузит)  ожидается "Illegal Card" - запись проходит,
-//                                       но подписи нет
-//   отформатированная карта             ожидается работа без сообщения об ошибке
-//   она же с защитой от записи          ожидается "Memory Card Write Protected"
+//   empty slot (whole card 0xFF)        expected "Card Not Ready"
+//   card of zeros (as MAME loads it)    expected "Illegal Card" - the write goes through,
+//                                       but there is no signature
+//   formatted card                      expected to work with no error message
+//   the same, write-protected           expected "Memory Card Write Protected"
 //
-// Четыре разных ответа на четыре подставленные карты - это и есть контроль: одно только
-// "Card Not Ready" на пустом гнезде ничего не доказывало бы, потому что так же выглядело бы
-// и меню, которое просто не работает.
+// Four different answers to four fed cards is the control: "Card Not Ready" alone on an empty
+// slot would prove nothing, because a menu that simply does not work would look the same.
 //
-// Первый аргумент - режим:
-//   explore <кнопка> ...  нажать перечисленные кнопки, печатая экран после каждой. Так
-//                         ищется сама страница «Save to Card», без домыслов о раскладке меню.
-//   cards                 четырёхчастный опыт выше.
+// The first argument is the mode:
+//   explore <button> ...  press the listed buttons, printing the screen after each. This is how
+//                         the "Save to Card" page itself is found, without guessing the menu layout.
+//   cards                 the four-part experiment above.
 #include "Source/PluginProcessor.h"
 
 #include <cstdio>
@@ -121,8 +120,8 @@ bool press(D110AudioProcessor &proc, const std::string &name, int times = 1) {
 	return false;
 }
 
-// Подпись отформатированной карты - двенадцать байт из ПЗУ 0x7804, за ними тип карты и его
-// дополнение (прошивка требует именно пары X / ~X, подпрограмма 0x7785).
+// Signature of a formatted card - twelve bytes from ROM 0x7804, followed by the card type and its
+// complement (the firmware requires exactly an X / ~X pair, routine 0x7785).
 void fillFormatted(std::vector<uint8_t> &card) {
 	card.assign(D110Core::kCardSize, 0x00);
 	static const char kSig[] = "Roland D-10 ";
@@ -131,12 +130,12 @@ void fillFormatted(std::vector<uint8_t> &card) {
 	card[0x0d] = uint8_t(~'D');
 	card[0x0e] = 'X';
 	card[0x0f] = uint8_t(~'X');
-	// Бит 0 последнего байта - защита от записи, ноль означает «защищена».
+	// Bit 0 of the last byte is write protection; zero means "protected".
 	card[D110Core::kCardSize - 1] = 0xff;
 }
 
-// Одна подставленная карта: залить, дойти до страницы работы с картой, нажать ENTER и снять
-// с экрана ответ прошивки.
+// One fed card: load it, get to the card page, press ENTER and capture the firmware's answer
+// from the screen.
 void tryCard(D110AudioProcessor &proc, const char *what, const std::vector<uint8_t> &card,
              bool inserted, const std::vector<std::string> &path) {
 	proc.getCore().setCardImage(card.data());
@@ -148,15 +147,15 @@ void tryCard(D110AudioProcessor &proc, const char *what, const std::vector<uint8
 	const std::string before = screen(proc);
 	press(proc, "Enter");
 	render(proc, 1.0);
-	// ENTER только спрашивает "Sure?", а выполняет WRITE/COPY - подтверждение здесь его, и
-	// найдено это перебором кнопок, а не догадкой о меню.
+	// ENTER only asks "Sure?", and WRITE/COPY executes - the confirmation here is its, and this
+	// was found by trying buttons, not by guessing the menu.
 	const std::string asked = screen(proc);
 	press(proc, "Write");
 
 	std::printf("  %s\n    до ENTER      : \"%s\"\n    после ENTER   : \"%s\"\n",
 	            what, before.c_str(), asked.c_str());
-	// Сообщение об ошибке прошивка снимает сама через пару секунд, поэтому экран пишется
-	// серией: один снимок «через столько-то» его просто не застаёт.
+	// The firmware clears the error message itself after a couple of seconds, so the screen is
+	// recorded as a series: a single snapshot "after so many seconds" simply misses it.
 	std::string last = asked;
 	for (int t = 0; t < 20; ++t) {
 		const std::string s = screen(proc);
@@ -186,14 +185,15 @@ int main(int argc, char **argv) {
 	std::printf("исходный экран: \"%s\"\n", screen(proc).c_str());
 
 	if (mode == "explore") {
-		// Экран снимается не один раз, а серией: сообщения об ошибке карты прошивка держит
-		// пару секунд и убирает сама, и один снимок «через столько-то» их просто не застаёт.
+		// The screen is captured not once but as a series: the firmware holds card error messages for
+		// a couple of seconds and clears them itself, and a single snapshot "after so many seconds"
+		// simply misses them.
 		for (int i = 2; i < argc; ++i) {
-			// Карта - такое же действие пользователя, как нажатие кнопки, и в разборе шагов
-			// ей место в том же списке.
-			// Сколько байт батарейного ОЗУ разошлось с прошлой отметкой. "Complete" на экране
-			// говорит только то, что операция дошла до конца; изменилась ли от неё память -
-			// вопрос отдельный, и на него отвечает счёт байтов, а не сообщение.
+			// A card is a user action just like a button press, and in the step breakdown it belongs
+			// in the same list.
+			// How many bytes of battery RAM differ from the previous mark. "Complete" on the screen only
+			// says the operation ran to the end; whether memory changed because of it is a separate
+			// question, answered by the byte count, not by the message.
 			if (std::strcmp(argv[i], "RAMDIFF") == 0) {
 				static std::vector<uint8_t> markRam;
 				std::vector<uint8_t> now(D110Core::kRamSize, 0);
@@ -227,9 +227,9 @@ int main(int argc, char **argv) {
 	}
 
 	if (mode == "roundtrip") {
-		// Полный круг, какой прошёл бы владелец: чистая карта - форматирование - запись -
-		// извлечение - возврат - чтение. Каждый шаг подтверждается тем, что сказала сама
-		// прошивка, и снимком карты, который берётся из плагина.
+		// A full circle, as the owner would go through it: clean card - format - write -
+		// eject - put back - read. Each step is confirmed by what the firmware itself said, and by a
+		// snapshot of the card taken from the plugin.
 		auto watch = [&](const char *what, double seconds) {
 			std::string last;
 			const int steps = int(seconds / 0.15);
@@ -250,7 +250,7 @@ int main(int argc, char **argv) {
 		watch("после WRITE", 2.5);
 
 		std::printf("\n=== 2. согласиться на форматирование ===\n");
-		press(proc, "Enter"); // здесь подтверждает ENTER, а не WRITE - найдено перебором
+		press(proc, "Enter"); // ENTER confirms here, not WRITE - found by trying buttons
 		watch("формат", 6.0);
 		proc.getCore().getCardImage(seen.data());
 		std::printf("    подпись на карте: \"%.12s\"  тип %02X/%02X %02X/%02X  байт 0x7FFF=%02X\n",
@@ -271,8 +271,8 @@ int main(int argc, char **argv) {
 		render(proc, 0.6);
 		press(proc, "Exit", 3);
 		press(proc, "Write"); press(proc, "Group+"); press(proc, "Enter"); press(proc, "Write");
-		// Чтение с карты пишет во внутреннюю память, а она защищена, поэтому прошивка сперва
-		// спрашивает "MemProtected / Turn off once ?" - согласиться и идти дальше.
+		// Reading from the card writes to internal memory, which is protected, so the firmware first
+		// asks "MemProtected / Turn off once ?" - agree and carry on.
 		render(proc, 0.6);
 		press(proc, "Enter"); press(proc, "Write");
 		watch("без карты", 3.0);
@@ -291,9 +291,9 @@ int main(int argc, char **argv) {
 	}
 
 	if (mode == "persist") {
-		// Карта - носитель, значит она обязана пережить выключение прибора, а гнездо -
-		// помнить, вынули из него карту или нет. Метка кладётся в место, до которого прошивке
-		// нет дела, чтобы её нельзя было спутать с тем, что записал прибор.
+		// The card is a medium, so it must survive power-off of the unit, and the slot must remember
+		// whether the card was taken out or not. The marker is put in a place the firmware does not
+		// care about, so it cannot be confused with what the unit wrote.
 		std::vector<uint8_t> card(D110Core::kCardSize, 0x00);
 		fillFormatted(card);
 		static const char kMark[] = "MARK-2026";
@@ -346,20 +346,20 @@ int main(int argc, char **argv) {
 	}
 
 	if (mode == "loadverify") {
-		// "Complete" на экране говорит только то, что операция дошла до конца. Что чтение с
-		// карты и вправду ВОЗВРАЩАЕТ память, показывает лишь сравнение трёх снимков: сразу
-		// после записи на карту, после правки в приборе и после чтения обратно. Третий обязан
-		// совпасть с первым, а второй - разойтись с ним. Без второго опыт ничего не значил бы:
-		// снимки совпали бы и у чтения, которое ничего не делает.
+		// "Complete" on the screen only says the operation ran to the end. That reading from the
+		// card really RETURNS the memory is shown only by comparing three snapshots: right after
+		// writing to the card, after an edit in the unit, and after reading back. The third must
+		// match the first, and the second must differ from it. Without the second the experiment would
+		// mean nothing: the snapshots would match for a read that does nothing.
 		auto snap = [&] {
 			std::vector<uint8_t> v(D110Core::kRamSize, 0);
 			proc.getCore().getRam(v.data());
 			return v;
 		};
-		// Счёт разошедшихся байт сам по себе ни о чём не говорит: экранный буфер прошивки
-		// живёт в том же ОЗУ и меняется от одного снимка к другому просто так. Поэтому
-		// печатаются и адреса - память патчей это 0x0000-0x1FFF (замерено factory_bank_probe),
-		// и правка типа ревербератора обязана лечь именно туда.
+		// The count of differing bytes says nothing by itself: the firmware's screen buffer lives
+		// in the same RAM and changes from one snapshot to the next for no reason. So the addresses
+		// are printed too - patch memory is 0x0000-0x1FFF (measured by factory_bank_probe), and a
+		// reverb type edit must land exactly there.
 		auto diff = [](const char *what, const std::vector<uint8_t> &a, const std::vector<uint8_t> &b) {
 			size_t n = 0, inPatches = 0;
 			std::string where;
@@ -398,7 +398,7 @@ int main(int argc, char **argv) {
 		render(proc, 0.6);
 		press(proc, "Write"); press(proc, "Enter"); press(proc, "Write");
 		watch(2.5);
-		press(proc, "Enter"); // согласиться на форматирование
+		press(proc, "Enter"); // agree to formatting
 		watch(4.0);
 		press(proc, "Exit", 3);
 		press(proc, "Write"); press(proc, "Enter"); press(proc, "Write");
@@ -406,11 +406,11 @@ int main(int argc, char **argv) {
 		press(proc, "Exit", 3);
 		const auto afterSave = snap();
 
-		// Стимул должен менять ХРАНИМУЮ память, а не временную. Правка в Patch Edit не годится:
-		// она ложится в рабочую копию, и снимок ОЗУ показал ноль изменений в памяти патчей.
-		// Заводской сброс перестраивает память тембров и ритма из ПЗУ пресетов - это заведомо
-		// хранимая память, и он перезапускает машину, что заодно проверяет, переживает ли
-		// карта перезапуск.
+		// The stimulus must change STORED memory, not temporary memory. An edit in Patch Edit will not
+		// do: it lands in the working copy, and the RAM snapshot showed zero changes in patch memory.
+		// A factory reset rebuilds timbre and rhythm memory from the ROM presets - that is definitely
+		// stored memory, and it restarts the machine, which also checks whether the card survives a
+		// restart.
 		std::printf("\n=== заводской сброс: память заведомо другая ===\n");
 		proc.getCore().factoryReset();
 		render(proc, 3.0);
@@ -435,8 +435,8 @@ int main(int argc, char **argv) {
 		return 0;
 	}
 
-	// Путь до страницы работы с картой. Передаётся с командной строки, потому что найден он
-	// режимом explore, а не выведен из раскладки меню.
+	// Path to the card page. Passed on the command line, because it was found by the explore
+	// mode, not derived from the menu layout.
 	std::vector<std::string> path;
 	for (int i = 2; i < argc; ++i) path.emplace_back(argv[i]);
 	if (path.empty()) { std::printf("нужен путь кнопок, найденный режимом explore\n"); return 1; }
@@ -451,15 +451,15 @@ int main(int argc, char **argv) {
 	fillFormatted(card);
 	tryCard(proc, "отформатированная", card, true, path);
 
-	// Защита от записи - движок НА КАРТЕ, а не байт в её памяти: прошивка читает его как
-	// бит 0 порта состояния матрицы IC21. Пока этот адрес был памятью, форматирование само
-	// же и защищало только что отформатированную карту.
+	// Write protection is the engine ON THE CARD, not a byte in its memory: the firmware reads it
+	// as bit 0 of the IC21 matrix status port. While this address was memory, formatting itself
+	// protected the card it had just formatted.
 	proc.getCore().setCardWriteProtect(true);
 	tryCard(proc, "она же, защита записи", card, true, path);
 	proc.getCore().setCardWriteProtect(false);
 
-	// Контроль сохранности: то, что прошивка записала на карту, обязано пережить извлечение
-	// и возврат. Иначе «карта» - это картинка, а не носитель.
+	// Persistence control: what the firmware wrote to the card must survive ejection and
+	// return. Otherwise the "card" is a picture, not a medium.
 	std::printf("\n=== контроль: содержимое переживает извлечение ===\n");
 	fillFormatted(card);
 	proc.getCore().setCardImage(card.data());

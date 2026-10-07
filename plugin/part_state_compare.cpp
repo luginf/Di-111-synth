@@ -1,15 +1,15 @@
-// Побайтно сравнивает, что для каждой партии держит ПРОШИВКА и что держит ДВИЖОК, прямо
-// во время демо-песни. Всё, что мост не донёс, видно здесь как конкретный расходящийся
-// байт и не видно ни с одной из сторон по отдельности.
+// Byte-by-byte comparison of what the FIRMWARE holds for each part and what the ENGINE
+// holds, right during the demo song. Whatever the bridge failed to carry over shows up
+// here as a specific diverging byte and is visible from neither side alone.
 //
-// Снимается ВО ВРЕМЯ демо, потому что демо загружает собственный патч: как партии выглядят
-// при загрузке, ничего не говорит о том, как они выглядят на игре.
+// Taken DURING the demo, because the demo loads its own patch: how the parts look at
+// load time says nothing about how they look during play.
 //
-// Штатный результат на «Macho Memory» - расходится ровно байт 0 у партий 6 и 7: прошивка
-// держит группу тембра 5, движок 3. Это не потеря в мосту, а предел, объявленный самим
-// D-110: таблица максимумов в управляющем ПЗУ даёт группе тембра максимум 3, и запись
-// прижимается к нему. Чем это грозит звуку и почему тембр всё равно приходит правильный -
-// см. docs/timbre_group_5.md.
+// The normal result on "Macho Memory" - exactly byte 0 diverges for parts 6 and 7: the
+// firmware holds timbre group 5, the engine 3. This is not a loss in the bridge but a
+// limit declared by the D-110 itself: the maximums table in the control ROM gives the
+// timbre group a maximum of 3, and the write is clamped to it. What this means for the
+// sound and why the right timbre still arrives - see docs/timbre_group_5.md.
 #include "Source/PluginProcessor.h"
 
 #include <cstdio>
@@ -72,12 +72,12 @@ int main() {
 		std::printf("  part | grp tmbr kSh fine bnd asg rev  -  LVL PAN | engine same?\n");
 		for (int p = 0; p < 8; ++p) {
 			const uint8_t *fw = &ram[0x2000 + 16 * p];
-			// Движок адресует свою память в УПАКОВАННОМ виде, а не в роландовском виде
-			// «три семибитных байта»: MT32EMU_MEMADDR из Structures.h сворачивает
-			// 0x030000 в 0x00C000. По роландовскому адресу регион не находится вовсе,
-			// readMemory возвращается, не тронув буфер, и всё читается как нули.
-			// Поэтому буфер сперва заполняется меткой: молчаливый холостой вызов не
-			// должен выглядеть как данные.
+									// The engine addresses its memory in PACKED form, not in Roland's "three
+									// seven-bit bytes" form: MT32EMU_MEMADDR from Structures.h folds 0x030000 into
+									// 0x00C000. At the Roland address the region is not found at all, readMemory
+									// returns without touching the buffer, and everything reads as zeros. So the
+									// buffer is first filled with a marker: a silent no-op call must not look like
+									// data.
 			auto packed = [](uint32_t a) {
 				return ((a & 0x7f0000u) >> 2) | ((a & 0x7f00u) >> 1) | (a & 0x7fu);
 			};

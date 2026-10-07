@@ -1,10 +1,10 @@
-// Проверяет перенесённый BOSS-ревербератор (BossEmu, munt/mt32emu/src/BossEmu.cpp) не на
-// компиляции, а на звуке: (1) действительно ли ic6.bin находится и грузится в synth, (2)
-// реагирует ли живой звук на смену типа ревербератора через ту же самую панель/память,
-// какой пользуется владелец, и (3) дают ли РАЗНЫЕ типы (Small Room и Delay 3 - максимально
-// непохожие по замыслу) заметно разный хвост затухания. Если BossEmu подключён, но тип не
-// доходит до него (например, зеркало ещё не отправляет байт), все восемь будут звучать
-// одинаково - ровно то, что нельзя увидеть по одной лишь успешной компиляции.
+// Checks the ported BOSS reverb (BossEmu, munt/mt32emu/src/BossEmu.cpp) not at compile
+// time but on actual sound: (1) whether ic6.bin is really found and loaded into the synth, (2)
+// whether live audio reacts to a reverb type change through the same panel/memory the owner
+// uses, and (3) whether DIFFERENT types (Small Room and Delay 3 - as dissimilar by design as
+// possible) give a clearly different decay tail. If BossEmu is wired in but the type never
+// reaches it (for example the mirror does not send the byte yet), all eight will sound the
+// same - exactly what a successful compile alone cannot reveal.
 #include "Source/PluginProcessor.h"
 
 #include <cmath>
@@ -28,16 +28,16 @@ void render(D110AudioProcessor &proc, double seconds) {
 	}
 }
 
-// Ставит тип ревербератора напрямую в System Area (RAM 0x2D95, смещение 1) через тот же
-// путь, каким панель сама шлёт правку в прошивку, - тем самым, который сегодня расширили
-// зеркалом.
+// Sets the reverb type directly in the System Area (RAM 0x2D95, offset 1) through the same
+// path the panel itself uses to send an edit to the firmware - the very one that was extended
+// with the mirror today.
 void setSystemByte(D110AudioProcessor &proc, int offset, juce::uint8 value) {
 	proc.sendAreaData(D110Core::kSysexSystem, offset, &value, 1);
 }
 
-// Полная громкость и заметный ревербератор: нота на максимум скорости, ревербератор
-// уровня 7 и времени 7 (максимум обоих). Нота держится 0.5с, потом снимается - интересен
-// именно хвост в тишине, где слышна работа ревербератора, а не сухой сигнал.
+// Full volume and a noticeable reverb: note at maximum velocity, reverb level 7 and time
+// 7 (the maximum of both). The note is held 0.5s, then released - what matters is the tail
+// in silence, where the reverb is audible, not the dry signal.
 double measureTail(D110AudioProcessor &proc, int reverbType) {
 	setSystemByte(proc, 1, juce::uint8(reverbType)); // type
 	setSystemByte(proc, 2, 7);                       // time
@@ -63,8 +63,8 @@ double measureTail(D110AudioProcessor &proc, int reverbType) {
 		proc.processBlock(buffer, off);
 	}
 
-	// Хвост: секунда тишины СРАЗУ после снятия ноты, суммарная энергия. Разные типы
-	// ревербератора распадаются по-разному - гребёнка "Room" короче, "Delay" тянется иначе.
+	// Tail: one second of silence RIGHT after the note release, total energy. Different reverb
+	// types decay differently - the "Room" comb is shorter, "Delay" stretches differently.
 	double energy = 0.0;
 	const int tailBlocks = int(1.0 * kSampleRate / kBlock);
 	for (int b = 0; b < tailBlocks; ++b) {

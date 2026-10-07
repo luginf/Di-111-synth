@@ -1,24 +1,24 @@
-// Что банк 0x0CC0 несёт ВО ВРЕМЕНИ, пока нота звучит.
+// What bank 0x0CC0 carries WHILE a note sounds.
 //
-// Карта регистров (docs/la32_register_map.md) разобрала всё, что пишется В МОМЕНТ выдачи
-// голоса: ширину импульса, срез, резонанс, форму волны, выбор волны ПЗУ, высоту. Осталась
-// та часть интерфейса, которая работает не разово, а непрерывно: банк 0x0CC0 переписывается
-// из ПЗУ 0x2C0D всё время, пока нота держится.
+// The register map (docs/la32_register_map.md) covered everything written AT THE MOMENT a
+// voice is issued: pulse width, cutoff, resonance, waveform, ROM wave selection, pitch. What
+// remains is the part of the interface that works continuously rather than once: bank 0x0CC0
+// is rewritten from ROM 0x2C0D the whole time the note is held.
 //
-// Вопрос не праздный, он решает форму всей эмуляции. Модель микросхемы в munt
-// (LA32WaveGenerator) требует на КАЖДЫЙ отсчёт три величины - амплитуду, высоту и срез, -
-// а в потоке на слот приходится два байта. Значит либо поток мультиплексирован, либо
-// амплитуда и срез идут своими путями, которые прежний захват не разделил.
+// The question is not idle, it decides the shape of the whole emulation. The chip model in
+// munt (LA32WaveGenerator) requires three quantities for EVERY sample - amplitude, pitch and
+// cutoff - yet the stream carries two bytes per slot. So either the stream is multiplexed, or
+// amplitude and cutoff travel by their own paths that the earlier capture did not separate.
 //
-// Прежние заходы на этот банк проваливались ТРИЖДЫ, и каждый раз по одной и той же причине:
-// потоки сравнивались как МНОЖЕСТВА значений. У прогонов разное число обновлений, поэтому
-// векторы не равны, даже когда их начала совпадают поэлементно, - и банк объявлялся
-// «зависящим от всего». Здесь поток не сравнивается ни с чем: он ПЕЧАТАЕТСЯ как ряд во
-// времени, вместе с адресом подпрограммы, сделавшей запись.
+// Earlier attempts on this bank failed THREE times, each time for the same reason:
+// the streams were compared as SETS of values. Runs have different numbers of updates, so
+// the vectors differ even when their beginnings match element by element - and the bank was
+// declared "dependent on everything". Here the stream is compared with nothing: it is PRINTED
+// as a time series, together with the address of the routine that made the write.
 //
-// Режимы:
-//   observe            одна нота, полный разбор всего окна 0x0C00-0x0DFF по времени
-//   env <группа> <шаг> та же нота после правки одного параметра огибающей - для сравнения
+// Modes:
+//   observe            one note, full time-resolved breakdown of the whole 0x0C00-0x0DFF window
+//   env <group> <step> the same note after editing one envelope parameter - for comparison
 #include "Source/PluginProcessor.h"
 
 #include <algorithm>
@@ -84,17 +84,18 @@ struct Run {
 	std::vector<int> slots;
 	uint64_t dropped = 0;
 	double heldMs = 0, releasedMs = 0;
-	// Сколько раз за ноту прошивка получила ответ от микросхемы. У настоящей LA32 вывод INT
-	// поднимает ЗАВЕРШЕНИЕ РАМПЫ (munt: LA32Ramp::checkInterrupt), то есть этих ответов
-	// должно быть примерно столько же, сколько ступеней у огибающих. Если их тысячи или
-	// ноль - огибающие прошивки идут не по тому пути, что на железе, и «регистр не
-	// сдвинулся» может означать именно это, а не отсутствие параметра.
+	// How many times per note the firmware got an answer from the chip. On a real LA32 the INT
+	// pin is raised by RAMP COMPLETION (munt: LA32Ramp::checkInterrupt), so there should be
+	// roughly as many answers as there are envelope steps. If there are thousands or zero, the
+	// firmware envelopes do not follow the same path as on hardware, and "the register did not
+	// move" may mean exactly that, not that the parameter is absent.
 	uint64_t servicesBefore = 0, servicesAfter = 0;
 };
 
-// Нота держится долго НАМЕРЕННО. Огибающая TVA у большинства тембров за полсекунды не
-// доходит и до фазы поддержки, а различить «поток несёт огибающую» и «поток несёт высоту»
-// можно только там, где огибающая заведомо движется, - то есть на атаке и на затухании.
+// The note is held for a long time ON PURPOSE. For most timbres the TVA envelope does not
+// even reach the sustain phase within half a second, and "the stream carries the envelope"
+// can be told from "the stream carries pitch" only where the envelope is definitely moving -
+// that is, on attack and on decay.
 Run playOne(D110AudioProcessor &proc, int note, int velocity, double hold, double tail) {
 	Run r;
 	r.servicesBefore = proc.getCore().la32Services();
@@ -115,8 +116,8 @@ Run playOne(D110AudioProcessor &proc, int note, int velocity, double hold, doubl
 	r.dropped = proc.getCore().soWritesDropped();
 	r.writes = proc.getCore().takeSoWrites();
 
-	// Слоты этой ноты - те, что затронуты в банке выдачи 0x0C00. Банк огибающих для этого не
-	// годится: он параллельно доигрывает предыдущие ноты.
+	// The slots of this note are those touched in the issue bank 0x0C00. The envelope bank is
+	// unsuitable for that: it keeps playing out the previous notes in parallel.
 	for (const auto &w : r.writes)
 		if ((w.addr & 0xFFC0) == D110Core::kLa32TapBase) {
 			const int slot = (w.addr & 0x3F) / kBytesPerSlot;
@@ -138,9 +139,9 @@ const char *bankName(uint16_t bank) {
 	}
 }
 
-// Сколько раз за ноту переписан каждый банк, и кто его пишет. Это и есть ответ на вопрос
-// «что настраивается разово, а что течёт»: разовая настройка даёт единицы записей, поток -
-// тысячи.
+// How many times per note each bank is rewritten, and who writes it. This is the answer to
+// "what is configured once and what flows": a one-time setup gives a handful of writes, a
+// stream gives thousands.
 void reportBanks(const Run &r) {
 	std::map<uint16_t, size_t> perBank;
 	std::map<uint16_t, std::map<uint16_t, size_t>> pcPerBank;
@@ -161,9 +162,9 @@ void reportBanks(const Run &r) {
 	}
 }
 
-// Ряд значений во времени для одного адреса. Печатаются только МОМЕНТЫ ИЗМЕНЕНИЯ: поток,
-// переписывающий одно и то же значение тысячу раз, и поток, ведущий огибающую, по числу
-// записей неотличимы, а по числу РАЗНЫХ значений - совершенно.
+// The series of values over time for one address. Only the MOMENTS OF CHANGE are printed: a
+// stream rewriting the same value a thousand times and a stream driving an envelope are
+// indistinguishable by write count, but entirely distinguishable by number of DIFFERENT values.
 void reportSeries(const Run &r, uint16_t addr, double onMs, int maxShown = 24) {
 	std::vector<std::pair<double, uint8_t>> changes;
 	int have = -1;
@@ -192,14 +193,14 @@ int main(int argc, char **argv) {
 	juce::ScopedJuceInitialiser_GUI juceInit;
 	std::setvbuf(stdout, nullptr, _IONBF, 0);
 
-	// Правок может понадобиться НЕСКОЛЬКО сразу, и это не удобство, а необходимость. Время
-	// атаки TVA само по себе ничего не меняет, если уровни огибающей стоят на максимуме:
-	// рампе некуда идти, и «регистр не сдвинулся» будет означать не «параметр не доходит»,
-	// а «раздражитель ничего не раздражал». Тройки: группа, параметр, шаг (минус - вниз).
+	// SEVERAL edits may be needed at once, and that is a necessity, not a convenience. The TVA
+	// attack time changes nothing by itself if the envelope levels sit at maximum: the ramp has
+	// nowhere to go, and "the register did not move" would mean not "the parameter does not
+	// arrive" but "the stimulus stimulated nothing". Triples: group, parameter, step (minus = down).
 	const std::string mode = argc > 1 ? argv[1] : "observe";
-	// В режиме ramps первый аргумент - кодировка байта состояния, дальше идут тройки правок:
-	// правки нужны и здесь, потому что весь смысл рамп проверяется тем, что огибающая, до
-	// которой раньше дело не доходило, теперь доходит.
+	// In ramps mode the first argument is the status byte encoding, followed by edit triples:
+	// edits are needed here too, because the whole point of the ramps check is that an envelope
+	// that previously never got that far now does.
 	const int statusMode = (mode == "ramps" && argc > 2) ? std::atoi(argv[2]) : 0;
 	struct Edit { int group, bank, presses; };
 	std::vector<Edit> edits;
@@ -212,22 +213,22 @@ int main(int argc, char **argv) {
 	render(proc, 10.0);
 	if (!proc.getCore().isRunning()) { std::printf("прошивка не поднялась\n"); return 1; }
 
-	// Режим order: в захват пускаются И регистры микросхемы, И таблица состояний слотов, чтобы
-	// они легли на одну ось времени. Ради этого фильтр расширяется до 0xEFFF - между 0x0DFF и
-	// 0xEDC0 в этот журнал не пишет никто, так что лишнего не наберётся.
+	// Order mode: both the chip registers AND the slot state table are captured, so that they
+	// land on one time axis. For that the filter is widened to 0xEFFF - nobody writes to this log
+	// between 0x0DFF and 0xEDC0, so nothing extra is collected.
 	if (mode == "order")
 		proc.getCore().setTraceFilter(D110Core::kLa32TapBase, 0xEFFF);
 	else
 		proc.getCore().setTraceFilter(D110Core::kLa32TapBase, D110Core::kLa32TapEnd);
 
-	// Режим ramps: считать рампы по-настоящему и поднимать прерывание по их прибытию.
-	// Ставится ПОСЛЕ включения питания - setPoweredOn задаёт политику сам.
-	// Кодировка байта состояния перебирается: разбор обработчика оставил четыре варианта,
-	// а какой верен, решает опыт - сколько ступеней огибающей после этого пошло.
+	// Ramps mode: count ramps for real and raise the interrupt when they arrive.
+	// Set AFTER power-on - setPoweredOn sets the policy itself.
+	// The status byte encoding is tried in turn: the handler analysis left four variants,
+	// and which one is right is decided by experiment - how many envelope steps follow.
 	if (mode == "ramps") {
 		proc.getCore().setStuckPolicy(D110Core::StuckPolicy::La32Ramps);
 		proc.getCore().setLa32StatusMode(statusMode);
-		// Вторая цифра режима, если она есть: считать ли 0xFF установкой без прерывания.
+		// Second digit of the mode, if present: whether to treat 0xFF as a preset without interrupt.
 		const bool presetFf = statusMode >= 10;
 		proc.getCore().setLa32StatusMode(statusMode % 10);
 		proc.getCore().setLa32PresetFf(presetFf);
@@ -246,8 +247,8 @@ int main(int argc, char **argv) {
 		            ram[0x2000], ram[0x2001], ram[0x21E4 + 10], ram[0x21E4 + 11]);
 	}
 
-	// КОНТРОЛЬ. Окно той же длины без ноты обязано молчать: если в нём есть записи, всё
-	// дальнейшее надо читать с поправкой на фон, а не как «вызвано нотой».
+	// CONTROL. A window of the same length without a note must be silent: if it has writes, all
+	// the rest has to be read with the background in mind, not as "caused by the note".
 	std::printf("\n=== контроль: окно без ноты ===\n");
 	{
 		proc.getCore().startSoTrace();
@@ -257,14 +258,14 @@ int main(int argc, char **argv) {
 		std::printf("  записей: %zu%s\n", w.size(), w.empty() ? "" : "  !!! окно не молчит");
 	}
 
-	// ---- какой бит регистра несёт СТРУКТУРУ пары партиалов ------------------------------
-	// Структура решает две вещи сразу: который партиал синтетический, а который PCM, и
-	// складываются они или перемножаются кольцевой модуляцией. Первое уже найдено - бит 7
-	// байта 0x0D00. Второе искать так же наугад незачем: структура перебирается по всем
-	// значениям, и рядом печатается, что о каждом говорят таблицы munt. Бит, который ходит
-	// вместе с кольцевой модуляцией и никак иначе, и будет ответом.
+	// ---- which register bit carries the partial pair STRUCTURE --------------------------
+	// The structure decides two things at once: which partial is synthetic and which is PCM, and
+	// whether they are summed or multiplied by ring modulation. The first is already found - bit 7
+	// of byte 0x0D00. There is no point hunting for the second at random: all structure values
+	// are stepped through, and what the munt tables say about each is printed next to it. The bit
+	// that moves together with ring modulation and in no other way will be the answer.
 	if (mode == "struct") {
-		// Таблицы из munt/Part.cpp: чем каждая структура является на самом деле.
+		// Tables from munt/Part.cpp: what each structure actually is.
 		static const uint8_t kPartialStruct[13] = {0, 0, 2, 2, 1, 3, 3, 0, 3, 0, 2, 1, 3};
 		static const uint8_t kMixStruct[13] = {0, 1, 0, 1, 1, 0, 1, 3, 3, 2, 2, 2, 2};
 
@@ -274,7 +275,7 @@ int main(int argc, char **argv) {
 			press(proc, "Timbre");
 			press(proc, "Edit");
 			press(proc, "Edit");
-			press(proc, "Group+", 1); // общая часть, страница структуры 1&2 (тон +10)
+			press(proc, "Group+", 1); // common part, structure page 1&2 (tone +10)
 			if (step) press(proc, "Number+", 1);
 			render(proc, 0.4);
 			const auto ram = ramOf(proc);
@@ -345,10 +346,10 @@ int main(int argc, char **argv) {
 	            (unsigned long long)proc.getCore().la32RampLandings());
 
 	if (mode == "order") {
-		// Что раньше - регистры рампы или пометка слота занятым. Печатается начало ноты
-		// целиком, без прореживания: вопрос именно в порядке нескольких первых событий.
-		// Поток высоты из журнала выброшен - он один даёт тысячи записей и утопил бы всё
-		// остальное, а к вопросу о порядке отношения не имеет.
+		// Which comes first - the ramp registers or marking the slot busy. The start of the note is
+		// printed in full, without thinning: the question is precisely the order of the first few
+		// events. The pitch stream is dropped from the log - it alone gives thousands of writes and
+		// would drown everything else, and it has no bearing on the question of order.
 		std::printf("\n  первые события ноты на одной оси времени\n");
 		std::printf("  мс    | ПЗУ  | адрес | знач | что это\n");
 		int shown = 0;
@@ -359,8 +360,8 @@ int main(int argc, char **argv) {
 			else if ((w.addr & 0xFFC0) == D110Core::kFilterRampBase) what = "рампа среза";
 			else if ((w.addr & 0xFFC0) == 0x0C40) what = "настройка (ширина/срез)";
 			else if ((w.addr & 0xFFC0) == 0x0D00) what = "настройка (волна/резонанс)";
-			// Таблицы прошивки идут через 0x40, как и банки микросхемы, поэтому номер слота
-			// берётся от начала СВОЕЙ таблицы, а не от начала всей области.
+			// The firmware tables are spaced 0x40 apart, like the chip banks, so the slot number is
+			// taken from the start of ITS OWN table, not from the start of the whole area.
 			else if (w.addr >= 0xEDC0) {
 				switch (w.addr & 0xFFC0) {
 				case 0xEDC0: what = "СЛОТ: пометка занятости"; break;

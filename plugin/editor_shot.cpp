@@ -1,12 +1,12 @@
-// Снимок расширенного редактора в файл, без окна и без мыши.
+// A snapshot of the extended editor to a file, without a window and without a mouse.
 //
-// Нужен затем же, зачем в этом проекте всё меряют по картинке, а не на глаз (см.
-// plugin/panel_render.cpp, снимающий ход карты памяти): посмотреть на результат до того,
-// как его увидит пользователь. Рисуется НАСТОЯЩИЙ компонент - тот самый D110EditorPane,
-// который стоит в плагине, - с живыми значениями из памяти работающего прибора, а не
-// какой-нибудь макет.
+// Needed for the same reason everything in this project is measured by picture rather than by eye (see
+// plugin/panel_render.cpp, which captures the memory card's travel): to look at the result before
+// the user sees it. A REAL component is drawn - the very D110EditorPane
+// that sits in the plugin - with live values from the memory of a running unit, not
+// some mock-up.
 //
-// Вкладка выбирается вторым доводом; "all" снимает все девять подряд.
+// The tab is chosen by the second argument; "all" captures all nine in a row.
 #include "Source/PluginEditor.h"
 #include "Source/PluginProcessor.h"
 #include "Source/UiTheme.h"
@@ -41,8 +41,8 @@ bool writeShot(juce::Component &c, const juce::File &out) {
 		std::printf("не удалось записать %s\n", out.getFullPathName().toRawUTF8());
 		return false;
 	}
-	// Поток закрывается ЯВНО, до всего остального: иначе файл дописывается уже при выходе
-	// из main, и читающая сторона успевает увидеть обрезанную картинку.
+	// The stream is closed EXPLICITLY, before everything else: otherwise the file is finished being written at exit
+	// from main, and the reading side manages to see a truncated image.
 	stream->flush();
 	stream.reset();
 	std::printf("снимок: %s (%d x %d, %d байт)\n", out.getFullPathName().toRawUTF8(),
@@ -66,10 +66,10 @@ int main(int argc, char **argv) {
 	std::printf("прошивка: %s   ПЗУ: %s\n", proc.getCore().isRunning() ? "работает" : "НЕТ",
 	            proc.isSynthReady() ? "загружены" : "НЕТ");
 
-	// Ширина окна и высота ящика - те же, что в собранном редакторе, поэтому снимок и
-	// показывает то, что увидит пользователь, а не отдельно подобранный размер. Необязательный
-	// третий довод переопределяет её - удобно проверить, как ЖК-индикатор ведёт себя у самой
-	// нижней границы constrainer'а (900), а не только у окна по умолчанию.
+	// Window width and drawer height - the same as in the assembled editor, so the snapshot
+	// shows what the user will see, not a separately chosen size. An optional
+	// third argument overrides it - handy for checking how the LCD indicator behaves at the very
+	// lower bound of the constrainer (900), not only at the default window.
 	const int width = (argc > 3) ? std::atoi(argv[3]) : 1500;
 	const float scale = float(width) / float(D110Panel::kRefW);
 	// D110_SHOT_HEIGHT overrides the pane height, to check the short-window layouts (scrollbars).
@@ -83,8 +83,8 @@ int main(int argc, char **argv) {
 	proc.setUiThemeLight(light);
 	d110ui::setTheme(light ? d110ui::Theme::Light : d110ui::Theme::Dark);
 
-	// Монитор имеет смысл смотреть на звучащем приборе: иначе на нём всегда «свободны все
-	// тридцать два голоса». Аккорд берётся на канале 2 - это партия 1 у заводского D-110.
+	// The monitor only makes sense to look at on a sounding unit: otherwise it always shows "all thirty-two
+	// voices free". The chord is played on channel 2 - that is part 1 on a factory D-110.
 	if (playing) {
 		juce::AudioBuffer<float> audio(2, kBlock);
 		juce::MidiBuffer on;
@@ -111,22 +111,22 @@ int main(int argc, char **argv) {
 		if (which != "all" && which != kTabs[i]) continue;
 		++wanted;
 		pane.selectTab(i);
-		// Таймер компонента здесь не крутится - очереди сообщений нет, - поэтому память
-		// прибора берётся вручную, тем же самым обновлением, что и в работе.
+		// The component's timer does not run here - there is no message queue - so the unit's
+		// memory is fetched manually, by the same refresh as in normal operation.
 		pane.refreshFromInstrument();
 		const juce::File out = juce::File::getCurrentWorkingDirectory()
 			.getChildFile(juce::String("editor_") + kTabs[i] + ".png");
 		if (writeShot(pane, out)) ++ok;
 	}
 
-	// И весь редактор целиком - прибор, полоса-ручка и выехавший ящик, - чтобы было видно,
-	// как это выглядит вместе.
+	// And the whole editor at once - unit, handle strip and extended drawer - to show
+	// how it looks together.
 	if (which == "all" || which == "whole") {
 		std::unique_ptr<D110AudioProcessorEditor> whole(
 			dynamic_cast<D110AudioProcessorEditor *>(proc.createEditor()));
 		if (whole != nullptr) {
-			// Ящик открывается прямо здесь: в плагине он выезжает по щелчку за треть
-			// секунды, а снимку показывать надо конечное положение.
+			// The drawer is opened right here: in the plugin it slides out on click over a third of a
+			// second, while the snapshot has to show the final position.
 			whole->setExpanded(true);
 			// Also opened here, purely so the snapshot shows what it looks like open - in
 			// normal use this drawer defaults to closed, unlike the keyboard below.
@@ -142,9 +142,9 @@ int main(int argc, char **argv) {
 			                           + D110AudioProcessorEditor::kSequencerHandleRefH
 			                           + D110SequencerPanel::kRefH) * scale + 0.5f));
 			whole->resized();
-			// Обе половины забирают состояние прибора своими таймерами, а очереди сообщений
-			// здесь нет. Без этого снимок вышел бы с погашенным индикатором и надписью
-			// «включите прибор» на приборе, который на самом деле работает.
+			// Both halves pick up the unit's state with their own timers, and there is no message queue
+			// here. Without this the snapshot would come out with the indicator dark and the caption
+			// "switch the unit on" on a unit that is actually running.
 			whole->refreshFromInstrument();
 			++wanted;
 			if (writeShot(*whole, juce::File::getCurrentWorkingDirectory()

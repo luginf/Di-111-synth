@@ -1,17 +1,17 @@
-// Откуда в начале демо берутся два «Attempted to play unmapped key 25/27».
+// Where the two "Attempted to play unmapped key 25/27" at the start of the demo come from.
 //
-// Движок отказывается играть ритм-клавишу, у которой в Rhythm Setup стоит тембр 127 (OFF)
-// - Part.cpp, RhythmPart::noteOn. Возможных объяснений ровно два, и они требуют разных
-// правок, поэтому их надо различить, а не выбрать:
+// The engine refuses to play a rhythm key whose Rhythm Setup holds timbre 127 (OFF)
+// - Part.cpp, RhythmPart::noteOn. There are exactly two possible explanations, and they need different
+// fixes, so they must be told apart, not picked between:
 //
-//   1. Гонка. Прошивка загружает карту ритма при старте песни, а зеркало снимает ОЗУ раз в
-//      кадр, и первые удары успевают раньше отправки региона.
-//   2. Карта. Прошивка сама держит для этих клавиш OFF и всё равно по ним стучит - тогда
-//      расходится либо база региона, либо трактовка поля.
+//   1. Race. The firmware loads the rhythm map at song start, while the mirror snapshots RAM once
+//      per frame, and the first strikes get in before the region is sent.
+//   2. Map. The firmware itself holds OFF for these keys and plays them anyway - then either
+//      the region base or the interpretation of the field diverges.
 //
-// Различает их одно измерение: что лежит в этих записях у ПРОШИВКИ и у ДВИЖКА до начала
-// песни и после, и в какой момент относительно первых ударов уходит регион. Счётчик
-// отправок региона снимается тем же циклом, что и звук, поэтому времена сопоставимы.
+// One measurement tells them apart: what lies in these entries in the FIRMWARE and in the ENGINE before the
+// song starts and after, and at what moment relative to the first strikes the region is sent. The region
+// send counter is sampled by the same loop as the sound, so the times are comparable.
 #include "Source/PluginProcessor.h"
 
 #include <cstdio>
@@ -30,10 +30,10 @@ constexpr uint32_t packed(uint32_t a) {
 }
 constexpr uint32_t kRhythmSysex = 0x030110;
 constexpr uint16_t kRhythmRam = 0x2090;
-constexpr int kFirstRhythmKey = 24; // запись N описывает клавишу 24 + N
+constexpr int kFirstRhythmKey = 24; // entry N describes key 24 + N
 
-// Отсчёт для всех отметок времени в этом инструменте: он же начало журнала нот, поэтому
-// отправки регионов и удары ритма измеряются одной линейкой.
+// Origin for all time marks in this tool: it is also the start of the note log, so
+// region sends and rhythm strikes are measured on one ruler.
 Clock::time_point g_zero;
 bool g_watching = false;
 struct Emit { double ms; uint64_t c0, c1, c2; };
@@ -44,12 +44,12 @@ double elapsedMs() {
 	return std::chrono::duration<double, std::milli>(Clock::now() - g_zero).count();
 }
 
-// Единственный способ двигать время в этом инструменте: считает звук блоками и на каждом
-// блоке снимает счётчики отправок Rhythm Setup (регионы 1..3 в kMirrorRegions).
+// The only way to advance time in this tool: it renders sound in blocks and on each
+// block samples the Rhythm Setup send counters (regions 1..3 in kMirrorRegions).
 //
-// Опрос идёт и во время нажатий тоже. Пока он начинался только после них, ответ на главный
-// вопрос - что раньше, карта ритма или первые удары, - был недостижим: счётчик впервые
-// читался уже с накопленным значением, и по нему было видно лишь «когда-то до сих пор».
+// Polling runs during the key presses too. While it started only after them, the answer to the main
+// question - which came first, the rhythm map or the first strikes - was unreachable: the counter was first
+// read with an already accumulated value, and all it showed was "sometime up to now".
 void pump(D110AudioProcessor &proc, double seconds) {
 	juce::AudioBuffer<float> block(2, kBlock);
 	const auto begin = Clock::now();
@@ -72,10 +72,10 @@ void pump(D110AudioProcessor &proc, double seconds) {
 	}
 }
 
-// Кнопка держится и отпускается ПОД расчёт звука, а не под sleep. В хосте плагин считает
-// звук непрерывно, и окно между появлением параметра и его применением равно одному блоку;
-// пауза без расчёта копит обе очереди на всё время нажатия и растягивает это окно до
-// полутора секунд - то есть измеряет сам инструмент, а не машину.
+// The button is held and released UNDER sound rendering, not under a sleep. In a host the plugin renders
+// sound continuously, and the window between a parameter appearing and being applied is one block;
+// a pause without rendering piles up both queues for the whole press and stretches that window to
+// a second and a half - i.e. it measures the tool itself, not the machine.
 void press(D110AudioProcessor &proc, std::initializer_list<int> idx, int hold, int settle) {
 	for (int i : idx) proc.getCore().setButton(i, true);
 	pump(proc, hold / 1000.0);
@@ -83,8 +83,8 @@ void press(D110AudioProcessor &proc, std::initializer_list<int> idx, int hold, i
 	pump(proc, settle / 1000.0);
 }
 
-// Записи Rhythm Setup для клавиш `from`..`to`, из ОЗУ прошивки и из движка, рядом.
-// Поле тембра: 127 - это OFF, остальное - номер тембра в ритм-банке.
+// Rhythm Setup entries for keys `from`..`to`, from firmware RAM and from the engine, side by side.
+// Timbre field: 127 is OFF, anything else is the timbre number in the rhythm bank.
 void dumpMap(D110AudioProcessor &proc, const std::vector<uint8_t> &ram, int from, int to,
              const char *when) {
 	std::printf("\n  Rhythm Setup, %s\n", when);
@@ -112,13 +112,13 @@ int main() {
 	D110AudioProcessor proc;
 	proc.prepareToPlay(kSampleRate, kBlock);
 	proc.setPoweredOn(true);
-	pump(proc, 9.0); // считаем, а не спим: иначе затор зеркала применится позже
+	pump(proc, 9.0); // render, do not sleep: otherwise the mirror backlog would be applied later
 	std::printf("прошивка работает: %s   движок открыт: %s\n",
 	            proc.getCore().isRunning() ? "да" : "НЕТ",
 	            proc.engineIsOpen() ? "да" : "НЕТ");
 	if (!proc.engineIsOpen()) return 1;
 
-	// Клавиши 24..31 - те, где стоят пропущенные 25 и 27.
+	// Keys 24..31 - where the skipped 25 and 27 sit.
 	std::vector<uint8_t> ram(D110Core::kRamSize, 0);
 	proc.getCore().getRam(ram.data());
 	dumpMap(proc, ram, 24, 31, "ДО запуска песни");

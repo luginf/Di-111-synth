@@ -1,12 +1,12 @@
-// Воспроизводит ровно то, что заметили на слух: играешь работающий барабан (кик, клавиша
-// 35), потом Closed Hi-Hat (клавиша 42, тембр 64 - один из трёх сломанных) - и на хай-хэте
-// звучит СОСЕДНИЙ звук, будто "отпечатался" кик. Причина была в том, что подсказка ставилась
-// в очередь для ЛЮБОЙ ритм-ноты, а забирается только тремя сломанными клавишами - кик душил
-// очередь, и хай-хэт получал чужой ключ.
+// Reproduces exactly what was noticed by ear: you play a working drum (kick, key
+// 35), then Closed Hi-Hat (key 42, timbre 64 - one of the three broken ones) - and the hi-hat
+// sounds like the NEIGHBOURING sound, as if the kick had "imprinted". The cause was that the hint was queued
+// for ANY rhythm note, but is only consumed by the three broken keys - the kick clogged the
+// queue, and the hi-hat got somebody else's key.
 //
-// Проверяется через NoteLog: он несёт ev.note ПОСЛЕ подмены - то самое значение, что реально
-// ушло в движок. Если чинит - для клавиши 42 там всегда 42, независимо от того, что играли
-// до неё.
+// Checked through the NoteLog: it carries ev.note AFTER the substitution - the very value that actually
+// went into the engine. If the fix works, for key 42 it is always 42, regardless of what was played
+// before it.
 #include "Source/PluginProcessor.h"
 
 #include <cstdio>
@@ -57,20 +57,20 @@ int main() {
 	proc.setForwardNotesToFirmware(true);
 
 	int failures = 0;
-	// Сценарий из жалобы: серия "чужих" ударов (кик, потом ещё и снейр), потом хай-хэт -
-	// и так десять раз подряд, чтобы поймать даже редко проявляющуюся аномалию.
+	// Scenario from the complaint: a series of "foreign" strikes (kick, then a snare too), then a hi-hat -
+	// and so ten times in a row, to catch even a rarely manifesting anomaly.
 	for (int round = 1; round <= 10; ++round) {
 		proc.getCore().takeNoteLog();
 		proc.getCore().startNoteLog();
 
-		hit(proc, 35); // кик - работающая клавиша, раньше засоряла очередь
-		hit(proc, 38); // снейр - тоже работающая
-		hit(proc, 42); // Closed Hi-Hat - сломанная, требует подмены
+		hit(proc, 35); // kick - a working key, used to clog the queue
+		hit(proc, 38); // snare - also working
+		hit(proc, 42); // Closed Hi-Hat - broken, needs substitution
 
 		const auto events = proc.getCore().takeNoteLog();
 		int hatNote = -1;
 		for (const auto &e : events)
-			if (e.on && e.part == 8) hatNote = int(e.note); // последний по счёту - хай-хэт
+			if (e.on && e.part == 8) hatNote = int(e.note); // the last one in order is the hi-hat
 		const bool ok = (hatNote == 42);
 		std::printf("круг %2d: клавиша 42 дошла до движка как %3d  %s\n", round, hatNote,
 		            ok ? "верно" : "*** ОШИБКА ***");

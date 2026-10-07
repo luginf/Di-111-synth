@@ -1,7 +1,7 @@
-// Разводит две версии причины «типы 0-6 дают тишину»: либо BossEmu действительно не звучит
-// на этих типах, либо дело в переключении МЕЖДУ типами в одном и том же synth (что-то не
-// переоткрывается как надо). Единственный способ разделить - свежий процесс на каждый тип,
-// без единого предыдущего переключения вообще.
+// Separates two versions of the cause of "types 0-6 give silence": either BossEmu really
+// does not sound on those types, or the issue is switching BETWEEN types in one and the
+// same synth (something is not reopened properly). The only way to separate them is a
+// fresh process per type, with no prior switching at all.
 #include "Source/PluginProcessor.h"
 
 #include <cstdio>
@@ -79,10 +79,10 @@ int main(int argc, char **argv) {
 	proc.setForwardNotesToFirmware(true);
 
 	(void)type;
-	// Развёртка time=7,level=7 (первый опыт) попала в мёртвую зону для большинства типов -
-	// это не баг чипа, это неудачный выбор параметров теста. Проверяем все восемь типов на
-	// более типичном значении (time=3, level=5), которое уже подтверждённо звучит у типа 0.
-	static const char *kNames[8] = {
+			// The time=7,level=7 sweep (first experiment) landed in a dead zone for most types -
+			// this is not a chip bug, it is an unlucky choice of test parameters. We check all
+			// eight types at a more typical value (time=3, level=5), which is already confirmed to
+			// sound on type 0.
 		"Small Room", "Medium Room", "Medium Hall", "Large Hall",
 		"Plate", "Delay 1", "Delay 2", "Delay 3"
 	};

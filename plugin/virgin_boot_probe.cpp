@@ -1,9 +1,9 @@
-// «Живая Timbre Temporary читается сплошным центром сразу после включения, ДО первого
-// нажатия кнопки» - но это могло быть накопленным следом сегодняшних опытов в реальной
-// памяти прибора, а не свойством самой прошивки. Единственный чистый способ разделить два
-// объяснения - девственная НВР во ВРЕМЕННОЙ папке, не задевая настоящий файл владельца ни
-// байтом. D110Core берёт путь к НВР явным аргументом (как в core_test.cpp) - реальный путь
-// D110AudioProcessor::getNvramRoot() сюда не участвует вовсе.
+// "The live Timbre Temporary reads as a solid centre right after power-on, BEFORE the first
+// button press" - but that could have been an accumulated trace of today's experiments in the unit's real
+// memory, rather than a property of the firmware itself. The only clean way to separate the two
+// explanations is a virgin NVRAM in a TEMPORARY folder, without touching the owner's real file by a
+// single byte. D110Core takes the NVRAM path as an explicit argument (as in core_test.cpp) - the real path of
+// D110AudioProcessor::getNvramRoot() is not involved here at all.
 #include "Source/D110Core.h"
 
 #include <cstdio>
@@ -33,8 +33,8 @@ int main() {
 	std::printf("прошивка: %s\n", core.isRunning() ? "работает" : "НЕ ЗАПУСТИЛАСЬ");
 	if (!core.isRunning()) return 1;
 
-	// setPoweredOn(true) в плагине делает ровно это на девственной памяти: сразу
-	// заводской сброс, без единого нажатия пользователя.
+	// setPoweredOn(true) in the plugin does exactly this on virgin memory: an immediate
+	// factory reset, without a single user press.
 	std::printf("девственная память - выполняю заводской сброс, как это делает плагин...\n");
 	core.factoryReset();
 	while (core.isResetting()) std::this_thread::sleep_for(std::chrono::milliseconds(200));

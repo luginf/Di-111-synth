@@ -1,18 +1,18 @@
-// «Синхронизация с Ableton плывёт, играет неточно по сетке, хотя демо-песня чётко отбивает
-// ритм» - и это разница ровно в один архитектурный шаг: demo-песня играет прошивка САМА
-// СЕБЕ, без единого байта MIDI, а хостовая нота идёт processBlock -> MIDI-очередь ->
-// эмулированный последовательный кабель (31250 бод, реальный темп) -> прошивка распознаёт
-// её в своих таблицах. Это КРУГ с реальной задержкой, а не то же самое, что демо.
+// "Ableton sync drifts, plays off the grid, even though the demo song keeps the rhythm
+// tightly" - and that is exactly one architectural step of difference: the demo song is
+// played by the firmware ITSELF, without a single byte of MIDI, while a host note goes
+// processBlock -> MIDI queue -> emulated serial cable (31250 baud, real tempo) -> the
+// firmware recognises it in its tables. That is a ROUND TRIP with real latency, not the
+// same thing as the demo.
+// setLatencySamples() is never called in the plugin (checked with grep) - so the host is
+// sure the latency is zero and compensates nothing. If the round trip gives a stable, not
+// jittery, delay - it is not jitter, it is uncompensated latency, and it is fixed by
+// exactly one line in prepareToPlay.
 //
-// setLatencySamples() в плагине не вызывается НИ РАЗУ (проверено grep) - значит хост уверен,
-// что задержки ноль, и ничего не компенсирует. Если круг даёт стабильную, а не дрожащую
-// задержку - это не джиттер, это некомпенсированная задержка, и лечится она ровно одной
-// строкой в prepareToPlay.
-//
-// Меряется тем же инструментом, что уже есть в ядре: startNoteLog()/takeNoteLog() ставит
-// метку РЕАЛЬНОГО времени на каждую ноту, которую прошивка сама зарегистрировала - это и
-// есть момент, когда она стала слышна. Сравнивается с моментом, когда МЫ сами подали ноту
-// в processBlock, тем же steady_clock.
+// Measured with the tool the core already has: startNoteLog()/takeNoteLog() stamps REAL
+// time on every note the firmware itself registered - which is the moment it became
+// audible. Compared against the moment WE fed the note to processBlock, with the same
+// steady_clock.
 #include "Source/PluginProcessor.h"
 
 #include <algorithm>
@@ -65,10 +65,10 @@ int main() {
 		return 1;
 	}
 	proc.setForwardNotesToFirmware(true);
-	render(proc, 1.0); // дать панели успокоиться после загрузки, не путать с нотами
+	render(proc, 1.0); // let the panel settle after boot, do not confuse it with notes
 
-	// Изолированные одиночные ноты, ОДНА партия, с запасом между ними - никакой давки в
-	// очереди, чтобы измерить именно круговую задержку самого пути, а не затор.
+			// Isolated single notes, ONE part, with slack between them - no crowding in the
+			// queue, so that we measure the round-trip latency of the path itself, not a jam.
 	constexpr int kRounds = 15;
 	std::vector<double> offsets;
 	proc.getCore().startNoteLog();

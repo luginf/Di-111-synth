@@ -1,9 +1,9 @@
-// До сих пор панорама ритм-секции сверялась только БАЙТОМ в памяти против заводского
-// дампа - никогда настоящим звуком через оба канала, как это сделано для обычных партий
-// (pan_verify.cpp). А с тех пор в Synth.cpp дважды правился сам путь рендера (ревербератор
-// BOSS, потом шесть индивидуальных выходов) - байт мог остаться верным, а путь до реального
-// стерео мог сломаться. Меряет L/R RMS для нескольких ритм-клавиш с разными значениями pan
-// (крайний вправо, крайне влево, центр, кик) и сверяет с тем, что предсказывает сам байт.
+// Until now the rhythm section's pan was checked only by a BYTE in memory against the factory
+// dump - never by real sound through both channels, as is done for ordinary parts
+// (pan_verify.cpp). And since then Synth.cpp has had the render path itself edited twice (the BOSS
+// reverb, then six individual outputs) - the byte could have stayed right while the path to the real
+// stereo broke. It measures L/R RMS for several rhythm keys with different pan values
+// (far right, far left, centre, kick) and compares with what the byte itself predicts.
 #include "Source/PluginProcessor.h"
 
 #include <cmath>
@@ -80,8 +80,8 @@ int main() {
 	std::printf("клавиша | тембр | pan-байт | предсказано %%R | измерено L/R RMS | измерено %%R\n");
 	static const struct { int note; const char *label; } kCases[] = {
 		{ 36, "Bass Drum 1 (кик)" },
-		{ 82, "" }, // самый правый pan в текущей карте
-		{ 81, "" }, // самый левый pan в текущей карте
+		{ 82, "" }, // the rightmost pan in the current map
+		{ 81, "" }, // the leftmost pan in the current map
 		{ 38, "Acoustic Snare" },
 		{ 42, "Closed Hi-Hat" },
 	};
@@ -89,7 +89,7 @@ int main() {
 		const int at = D110Core::kRamRhythmTemp + (c.note - D110Core::kRhythmFirstKey) * D110Core::kRhythmRecord;
 		const int tembr = ram[(size_t)at];
 		const int panByte = ram[(size_t)at + 2];
-		const double predictedPctR = 100.0 * (14 - panByte) / 14.0; // 0=R,14=L -> шкала в %R
+		const double predictedPctR = 100.0 * (14 - panByte) / 14.0; // 0=R,14=L -> scale in %R
 
 		const Balance bal = measureBalance(proc, c.note);
 		const double total = bal.l + bal.r;

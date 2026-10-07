@@ -1,18 +1,18 @@
-// Насколько на самом деле расходится время, когда прошивка УЗНАЁТ о ноте, если несколько
-// партий бьют одновременно - то, что раньше объяснялось на словах (общая очередь MIDI к
-// прошивке на настоящей скорости кабеля, 3125 байт/с), здесь измеряется по-настоящему.
+// How far apart the times really are at which the firmware LEARNS of a note when several
+// parts strike at once - what used to be explained in words (a shared MIDI queue to the
+// firmware at real cable speed, 3125 bytes/s) is measured here for real.
 //
-// D110Core уже несёт для этого готовый инструмент: startNoteLog()/takeNoteLog() ставит
-// метку РЕАЛЬНОГО времени (steady_clock, миллисекунды от старта записи) на каждую ноту,
-// которую прошивка сама зарегистрировала в своих таблицах. Это не время, когда MIDI ушёл в
-// плагин, а время, когда прошивка ДЕЙСТВИТЕЛЬНО об этом узнала - то есть ровно то звено, где
-// и живёт задержка общей последовательной очереди.
+// D110Core already carries a ready-made tool for this: startNoteLog()/takeNoteLog() stamps
+// a REAL-time mark (steady_clock, milliseconds since recording started) on every note
+// the firmware itself registered in its tables. This is not the time the MIDI went into the
+// plugin but the time the firmware ACTUALLY learned of it - exactly the link where the
+// delay of the shared serial queue lives.
 //
-// Опыт: девять партий (восемь голосовых + ритм) бьют РОВНО ОДНОВРЕМЕННО - все в одном
-// MidiBuffer на нулевой позиции внутри одного processBlock, как их подал бы хост на плотной
-// доле, - и так восемь долей подряд в РЕАЛЬНОМ времени (120 уд/мин, не ускоренно). Номер доли
-// зашит в velocity, поэтому запись в NoteLog можно однозначно приписать своей доле, а не
-// гадать по близости меток.
+// Experiment: nine parts (eight voice + rhythm) strike EXACTLY simultaneously - all in one
+// MidiBuffer at position zero inside one processBlock, the way a host would deliver them on a
+// dense beat - for eight beats in a row in REAL time (120 bpm, not sped up). The beat number
+// is baked into the velocity, so a NoteLog entry can be unambiguously attributed to its beat,
+// rather than guessed from how close the marks are.
 #include "Source/PluginProcessor.h"
 
 #include <algorithm>
@@ -25,8 +25,8 @@ namespace {
 constexpr double kSampleRate = 44100.0;
 constexpr int kBlock = 512;
 constexpr int kBeats = 8;
-constexpr double kBeatMs = 500.0; // 120 уд/мин
-// Партии 1-8 отвечают на каналах 2-9, ритм - на 10 (заводская карта).
+constexpr double kBeatMs = 500.0; // 120 bpm
+// Parts 1-8 answer on channels 2-9, rhythm on 10 (factory map).
 constexpr int kChannels[9] = { 2, 3, 4, 5, 6, 7, 8, 9, 10 };
 
 void renderBlocks(D110AudioProcessor &proc, int blocks, juce::MidiBuffer *first = nullptr) {
@@ -65,8 +65,8 @@ int main() {
 	const auto t0 = std::chrono::steady_clock::now();
 
 	for (int beat = 0; beat < kBeats; ++beat) {
-		// Ждать РЕАЛЬНОЕ время до своей доли - не ускоренно, иначе измерение показало бы не
-		// то, с чем сталкивается играющий в настоящем темпе.
+		// Wait REAL time until its beat - not sped up, otherwise the measurement would not show
+		// what a player at a real tempo runs into.
 		const double targetMs = beat * kBeatMs;
 		while (std::chrono::duration<double, std::milli>(
 		           std::chrono::steady_clock::now() - t0)
@@ -74,16 +74,16 @@ int main() {
 			std::this_thread::sleep_for(std::chrono::milliseconds(1));
 
 		juce::MidiBuffer hit;
-		// Номер доли зашит в velocity (10 + beat), чтобы запись в NoteLog можно было
-		// однозначно приписать своей доле - не по близости меток времени, а по значению.
+		// The beat number is baked into the velocity (10 + beat), so a NoteLog entry can be
+		// unambiguously attributed to its beat - by value, not by how close the time marks are.
 		for (int ch : kChannels)
 			hit.addEvent(juce::MidiMessage::noteOn(ch, 48, juce::uint8(10 + beat)), 0);
 		juce::AudioBuffer<float> audio(2, kBlock);
 		audio.clear();
 		proc.processBlock(audio, hit);
 
-		// Снятие - через 80 мс, чтобы голоса не копились без нужды; на измерение регистрации
-		// note-on это не влияет.
+		// Release after 80 ms so voices do not pile up needlessly; this does not affect measuring
+		// the note-on registration.
 		std::this_thread::sleep_for(std::chrono::milliseconds(80));
 		juce::MidiBuffer off;
 		for (int ch : kChannels) off.addEvent(juce::MidiMessage::noteOff(ch, 48), 0);
@@ -92,7 +92,7 @@ int main() {
 		proc.processBlock(audio2, off);
 	}
 
-	render(proc, 1.5); // дать хвосту очереди дойти до прошивки
+	render(proc, 1.5); // let the tail of the queue reach the firmware
 
 	const auto log = proc.getCore().takeNoteLog();
 	const auto dropped = proc.getCore().noteLogDropped_();
@@ -115,8 +115,8 @@ int main() {
 		const double spread = ms.back() - ms.front();
 		worstSpread = std::max(worstSpread, spread);
 		if (beat == 0) firstBeatFirstMs = ms.front();
-		// Отставание первой ноты доли от того, где она должна была бы стоять, если бы каждая
-		// доля начинала с чистого листа - т.е. от идеальной сетки, отсчитанной с первой доли.
+		// Lag of the first note of a beat behind where it would sit if every
+		// beat started from a clean slate - i.e. from the ideal grid counted from the first beat.
 		const double intendedMs = firstBeatFirstMs + beat * kBeatMs;
 		const double driftMs = ms.front() - intendedMs;
 		if (std::abs(driftMs) > std::abs(worstDriftMs)) { worstDriftMs = driftMs; worstDriftBeat = beat; }
@@ -134,23 +134,23 @@ int main() {
 	                ? "  <-- растёт от доли к доле, а не только разброс внутри удара"
 	                : "  (в пределах разброса одного удара, не накапливается)");
 
-	// --- стресс: где именно средняя плотность начинает превышать канал ------------
+	// --- stress: where exactly the average density starts to exceed the channel ---------
 	//
-	// Умеренный удар (выше) не копит отставания вовсе - средняя нагрузка там смехотворно
-	// мала (27 байт раз в 500 мс = 54 байт/с против канала в 3125 байт/с). Здесь плотность
-	// поднимается настоящим потоком - шестнадцатые по трём партиям ударных сразу, - и очередь
-	// смотрится НАПРЯМУЮ по счётчикам байт (midiForwarded/midiDelivered), а не косвенно по
-	// журналу нот: разница между ними - это в точности то, что ещё сидит в очереди и не
-	// доехало до прошивки.
+	// A moderate strike (above) accumulates no lag at all - the average load there is absurdly
+	// small (27 bytes every 500 ms = 54 bytes/s against a 3125 bytes/s channel). Here the density
+	// is raised with a real stream - sixteenth notes across three drum parts at once - and the queue
+	// is watched DIRECTLY through the byte counters (midiForwarded/midiDelivered), not indirectly
+	// through the note log: the difference between them is exactly what still sits in the queue and
+	// has not reached the firmware.
 	std::printf("\n=== СТРЕСС: сплошной плотный поток, слежение за очередью напрямую ===\n");
 	{
-		// Подобрано так, чтобы СРЕДНЯЯ нагрузка превысила канал (3125 байт/с), а не осталась
-		// близко к нему: 9 партий, нота+снятие каждая (6 байт) каждые 10 мс - это 5400 байт/с,
-		// 173% канала. Это уже не "быстрый барабанный проход", а намеренный избыток - вопрос
-		// не "бывает ли так в музыке", а "что происходит с очередью, когда так есть".
+		// Chosen so that the AVERAGE load exceeds the channel (3125 bytes/s) rather than staying
+		// close to it: 9 parts, note+release each (6 bytes) every 10 ms - that is 5400 bytes/s,
+		// 173% of the channel. This is no longer a "fast drum fill" but a deliberate excess - the question is
+		// not "does this happen in music" but "what happens to the queue when it does".
 		constexpr double kStepMs = 10.0;
 		constexpr int kVoices = 9;
-		constexpr int kSteps = 200; // 2 секунды потока
+		constexpr int kSteps = 200; // 2 seconds of stream
 		const uint64_t beforeSent = proc.getCore().midiForwarded();
 		const auto t1 = std::chrono::steady_clock::now();
 		double peakBacklogBytes = 0.0;
@@ -180,7 +180,7 @@ int main() {
 			peakBacklogMs = std::max(peakBacklogMs, backlogMs);
 		}
 
-		render(proc, 2.0); // дать очереди дослить всё, что накопилось
+		render(proc, 2.0); // let the queue drain everything that accumulated
 		const uint64_t afterSent = proc.getCore().midiForwarded();
 		const uint64_t afterGot = proc.getCore().midiDelivered();
 		const double avgBytesPerSec = double(afterSent - beforeSent)

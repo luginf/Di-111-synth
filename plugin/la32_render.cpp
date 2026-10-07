@@ -1,18 +1,19 @@
-// Первый мост от РЕГИСТРОВ к ЗВУКУ: снять состояние, которое настоящая прошивка положила в
-// LA32, и прогнать его через модель той же микросхемы.
+// First bridge from REGISTERS to SOUND: take the state that the real firmware put into the
+// LA32 and run it through a model of the same chip.
 //
-// Модель уже есть - `LA32FloatWaveGenerator` из munt. Чего у неё нет, так это подачи
-// состояния от живой прошивки: munt подаёт ей то, что вычислил его собственный синтезатор,
-// заменяющий прошивку. Здесь наоборот - берётся то, что прошивка написала в регистры, и
-// разобрано по docs/la32_register_map.md.
+// The model already exists - munt's `LA32FloatWaveGenerator`. What it lacks is feeding it
+// state from a live firmware: munt feeds it what its own synthesizer computed, which replaces
+// the firmware. Here it is the other way round - what the firmware wrote to the registers is
+// taken and decoded according to docs/la32_register_map.md.
 //
-// Проверка не на слух. У ноты 60 частота известна заранее, и она меряется по нулям сигнала.
-// Если разбор регистров верен, основной тон обязан совпасть; если шкала высоты понята
-// неверно - разойдётся, и на сколько именно, тоже будет видно. Заодно это разрешает
-// расхождение 4111 против 4096 на октаву, записанное в документе как неразъяснённое.
+// The check is not by ear. For note 60 the frequency is known in advance, and it is measured
+// by the zero crossings of the signal. If the register decoding is right, the fundamental must
+// match; if the pitch scale is misunderstood it will diverge, and by how much will be visible
+// too. It also resolves the 4111 versus 4096 per octave discrepancy recorded in the document
+// as unexplained.
 //
-// Пока только СИНТЕТИЧЕСКИЙ партиал: для PCM нужен разбор адреса и длины волны в ПЗУ, а он
-// ещё не сделан.
+// Only the SYNTHETIC partial so far: PCM needs decoding of the wave address and length in the
+// ROM, which is not done yet.
 #include "Source/PluginProcessor.h"
 
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -31,8 +32,8 @@ namespace {
 constexpr double kSampleRate = 44100.0;
 constexpr int kBlock = 512;
 constexpr double kChipRate = D110Core::kLa32SampleRate;
-// Генератор ждёт не уровень, а его ЛОГАРИФМИЧЕСКОЕ ДОПОЛНЕНИЕ - см. подробный комментарий у
-// первого использования ниже.
+// The generator expects not the level but its LOGARITHMIC COMPLEMENT - see the detailed comment
+// at the first use below.
 constexpr MT32Emu::Bit32u kAmpFull = 67117056;
 constexpr double kBlockSeconds = double(kBlock) / kSampleRate;
 using Clock = std::chrono::steady_clock;
@@ -72,45 +73,48 @@ void pressButton(D110AudioProcessor &proc, const char *name, int times = 1) {
 		}
 }
 
-// Состояние одного голоса, собранное из записей в регистры.
+// State of one voice, assembled from the register writes.
 struct Voice {
 	bool seen = false;
-	bool isPcm = false;      // 0x0D00 чётный байт, бит 7
-	bool sawtooth = false;   // он же, бит 6
-	uint8_t resonance = 0;   // 0x0D00 нечётный байт, младшие 5 бит, минус единица
-	uint8_t pulseWidth = 0;  // 0x0C40 чётный байт (СИНТЕЗ) - у PCM-партиала не участвует
-	uint8_t cutoff = 0;      // 0x0C40 нечётный байт (СИНТЕЗ) - у PCM это pos волны, см. ниже
-	uint8_t wavePos = 0;     // 0x0C40 нечётный байт (PCM) - см. ниже
-	uint8_t ampTarget = 0;   // выбранный флагом банк рампы, нечётный байт
-	uint16_t pitch = 0;      // 0x0CC0, шестнадцатибитное
-	// 0x0D00 чётный байт, бит 5. Совпал с Partial::isRingModulatingNoMix() из munt на всех
-	// одиннадцати достижимых структурах и обоих слотах - 22 точки без исключений
-	// (docs/la32_register_map.md). У ведущего партиала он взведён только при mix 2, у
-	// ведомого - при mix 1 и mix 2, то есть везде, где идёт кольцевая модуляция без
-	// подмешивания ведущего.
+	bool isPcm = false;      // 0x0D00 even byte, bit 7
+	bool sawtooth = false;   // the same, bit 6
+	uint8_t resonance = 0;   // 0x0D00 odd byte, low 5 bits, minus one
+	uint8_t pulseWidth = 0;  // 0x0C40 even byte (SYNTH) - unused for a PCM partial
+	uint8_t cutoff = 0;      // 0x0C40 odd byte (SYNTH) - for PCM this is the wave pos, see below
+	uint8_t wavePos = 0;     // 0x0C40 odd byte (PCM) - see below
+	uint8_t ampTarget = 0;   // ramp bank selected by the flag, odd byte
+	uint16_t pitch = 0;      // 0x0CC0, sixteen bits
+	// 0x0D00 even byte, bit 5. Matched munt's Partial::isRingModulatingNoMix() on all
+	// eleven reachable structures and both slots - 22 points without exception
+	// (docs/la32_register_map.md). For the master partial it is set only at mix 2, for the
+	// slave - at mix 1 and mix 2, i.e. everywhere ring modulation runs without mixing in the
+	// master.
 	bool ringNoMix = false;
-	// Он же, бит 6, у PCM-партиала: гаснет ровно у ведомого в кольцевой модуляции. Это в
-	// точности условие pcmWaveInterpolated у munt, где сказано, что у такого партиала
-	// умножитель интерполяции занят кольцевым модулятором. У синтетического партиала тот же
-	// бит несёт пилу - разделить эти два смысла на нынешних данных нечем, оба не опровергнуты.
+	// The same, bit 6, for a PCM partial: it is cleared exactly for the slave in ring modulation.
+	// This is precisely munt's pcmWaveInterpolated condition, which says that for such a partial
+	// the interpolation multiplier is taken by the ring modulator. For a synthetic partial the same
+	// bit carries the sawtooth - there is no way to separate these two meanings on the current
+	// data, neither is refuted.
 	bool pcmInterpolated = true;
-	// 0x0D00 нечётный байт у PCM-партиала: старшие биты - длина и цикл волны (см. ниже),
-	// младшие - резонанс, тот же, что и у синтетического.
+	// 0x0D00 odd byte for a PCM partial: the high bits are the wave length and loop (see below),
+	// the low ones are resonance, the same as for a synthetic one.
 	bool pcmLoop = false;
 	uint32_t pcmLen = 0;
 };
 
-// Таблица волн из ПЗУ пресетов не читается здесь вовсе - и это не упущение. Разбор регистров
-// (docs/la32_register_map.md, "PCM: адрес и длина волны читаются прямо из регистров") нашёл
-// точное совпадение регистра 0x0C40.x.1 с байтом `pos` этой таблицы для трёх разных значений
-// pcmWave подряд - но сама таблица нужна только ПРОШИВКЕ, чтобы вычислить адрес; микросхеме
-// таблица неизвестна вовсе, она получает уже готовый адрес и длину. Поэтому рендер ниже берёт
-// адрес и длину прямо из регистров, как это делает и настоящая LA32.
+// The wave table from the presets ROM is not read here at all - and that is not an omission.
+// The register analysis (docs/la32_register_map.md, "PCM: wave address and length are read
+// straight from the registers") found an exact match of register 0x0C40.x.1 with this table's
+// `pos` byte for three different consecutive pcmWave values - but the table itself is needed
+// only by the FIRMWARE, to compute the address; the chip does not know the table at all, it
+// receives a ready address and length. So the render below takes the address and length
+// straight from the registers, as the real LA32 does.
 
-// Раскодирование сырых байт волнового ПЗУ в те же логарифмические отсчёты, что строит
-// Synth::loadPCMROM в munt - тот же файл, та же чересстрочная развёртка по двум микросхемам,
-// повторённая здесь один в один, потому что публичного доступа к уже загруженным данным
-// синтеза плагин не даёт, а сами байты те же самые, что он загружает через тот же файл.
+// Decoding of the raw wave ROM bytes into the same logarithmic samples that
+// Synth::loadPCMROM builds in munt - the same file, the same interleaved unpacking across the two
+// chips, repeated here one to one, because the plugin gives no public access to the already
+// loaded synthesis data, and the bytes themselves are the same ones it loads through the
+// same file.
 std::vector<MT32Emu::Bit16s> decodePcmRom(const juce::File &waveRom) {
 	juce::MemoryBlock d;
 	std::vector<MT32Emu::Bit16s> out;
@@ -132,14 +136,14 @@ std::vector<MT32Emu::Bit16s> decodePcmRom(const juce::File &waveRom) {
 	return out;
 }
 
-// Частота ноты при строе, который D-110 показывает на экране.
+// Note frequency at the tuning the D-110 shows on its screen.
 double noteHz(int note, double masterTuneHz) {
 	return masterTuneHz * std::pow(2.0, (note - 69) / 12.0);
 }
 
-// Основной тон по переходам через ноль вверх, на установившемся куске. Способ грубый, но для
-// вопроса «та ли октава и тот ли полутон» его хватает с запасом, а тонкую долю он даёт по
-// среднему периоду, а не по одному.
+// Fundamental by upward zero crossings, on a settled stretch. The method is crude, but for
+// the question "is it the right octave and the right semitone" it is more than enough, and
+// it gives the fine fraction by the mean period, not by a single one.
 double fundamentalHz(const std::vector<float> &x, double sr) {
 	size_t first = 0, last = 0;
 	int crossings = 0;
@@ -159,13 +163,13 @@ int main(int argc, char **argv) {
 	std::setvbuf(stdout, nullptr, _IONBF, 0);
 
 	const int note = argc > 1 ? std::atoi(argv[1]) : 60;
-	// Сила нажатия - управляемый вход: она двигает ЦЕЛЬ рампы, то есть уровень. Проверять
-	// закон громкости надо по НАКЛОНУ, а не по одному пику: абсолютный пик зависит ещё и от
-	// формы волны, а отношение двух пиков при известной разнице уровней - уже нет.
+	// Velocity is a controlled input: it moves the ramp TARGET, i.e. the level. The loudness law
+	// must be checked by the SLOPE, not by a single peak: the absolute peak also depends on the
+	// waveform, whereas the ratio of two peaks for a known level difference does not.
 	const int velocity = argc > 3 ? std::atoi(argv[3]) : 100;
-	// На сколько шагов сдвинуть структуру пары 1&2 от заводской. Нужно, чтобы проверить путь
-	// кольцевой модуляции: у заводского тембра структура 2, то есть простое сложение, и на
-	// нём кольцевой модулятор не работает вовсе - а значит и утверждать про него нечего.
+	// By how many steps to shift the pair 1&2 structure from the factory one. Needed to check the
+	// ring modulation path: the factory timbre has structure 2, i.e. plain addition, and the ring
+	// modulator does not work on it at all - so there is nothing to claim about it.
 	const int structureSteps = argc > 4 ? std::atoi(argv[4]) : 0;
 	const juce::File outDir = argc > 2 ? juce::File(juce::String(argv[2]))
 	                                   : juce::File::getCurrentWorkingDirectory();
@@ -192,7 +196,7 @@ int main(int argc, char **argv) {
 		pressButton(proc, "Timbre");
 		pressButton(proc, "Edit");
 		pressButton(proc, "Edit");
-		pressButton(proc, "Group+", 1); // общая часть, страница структуры пары 1&2
+		pressButton(proc, "Group+", 1); // common part, pair 1&2 structure page
 		pressButton(proc, "Number+", structureSteps);
 		render(proc, 0.4);
 		pressButton(proc, "Exit", 3);
@@ -201,9 +205,9 @@ int main(int argc, char **argv) {
 		std::printf("структура пары 1&2: %d\n", ram[0x21E4 + 10]);
 	}
 
-	// Одна нота, короткое окно: нужны значения, которые прошивка положила при выдаче голоса.
-	// Нота держится и отпускается ВНУТРИ окна захвата: ступени огибающей приходят и при
-	// нажатии, и при снятии, и без второй половины проверять в рампе нечего.
+	// One note, a short window: the values the firmware put in at voice issue are needed.
+	// The note is held and released INSIDE the capture window: envelope steps arrive both on
+	// press and on release, and without the second half there is nothing to check in the ramp.
 	proc.getCore().startSoTrace();
 	const uint8_t on[3] = {0x91, uint8_t(note), uint8_t(velocity)};
 	proc.getCore().pushMidi(on, 3);
@@ -214,8 +218,8 @@ int main(int argc, char **argv) {
 	proc.getCore().stopSoTrace();
 	const auto writes = proc.getCore().takeSoWrites();
 
-	// Разбор. Берётся ПЕРВОЕ значение каждого регистра: ведущее 0xFF - это установка, а не
-	// данные, но здесь оно в чётных байтах, которые нас в этой части не интересуют.
+	// Decoding. The FIRST value of each register is taken: a leading 0xFF is a preset, not
+	// data, but here it sits in the even bytes, which do not interest us in this part.
 	Voice v[D110Core::kNumHardwareVoices];
 	int bankOf[D110Core::kNumHardwareVoices] = {};
 	std::map<uint16_t, uint8_t> firstValue;
@@ -234,21 +238,21 @@ int main(int argc, char **argv) {
 		const auto res = firstValue.find(uint16_t(0x0D01 + 2 * s));
 		if (res != firstValue.end()) {
 			v[s].resonance = uint8_t(res->second & 0x1F);
-			// Измерено точным совпадением (docs/la32_register_map.md): для тона со сменой
-			// pcmWave 61->81 регистр 0D00.x.1 дал 18->88, а сама запись в ПЗУ - len 0x10 и
-			// 0x80. 0x18 = 0x10|0x08, 0x88 = 0x80|0x08 - старшие биты в точности байт len,
-			// младшие не тронуты правкой волны. Значит длина и цикл лежат в тех же старших
-			// битах, что у синтетического партиала пусты.
+			// Measured by exact match (docs/la32_register_map.md): for a tone with pcmWave changed
+			// 61->81 register 0D00.x.1 gave 18->88, and the ROM entry itself has len 0x10 and
+			// 0x80. 0x18 = 0x10|0x08, 0x88 = 0x80|0x08 - the high bits are exactly the len byte,
+			// the low ones are untouched by the wave edit. So length and loop sit in the same high
+			// bits that are empty for a synthetic partial.
 			v[s].pcmLoop = (res->second & 0x80) != 0;
 			v[s].pcmLen = 0x800u << ((res->second & 0x70) >> 4);
 		}
 		const auto pw = firstValue.find(uint16_t(0x0C40 + 2 * s));
 		if (pw != firstValue.end()) v[s].pulseWidth = pw->second;
 		const auto co = firstValue.find(uint16_t(0x0C41 + 2 * s));
-		// Один и тот же нечётный байт банка 0x0C40 несёт РАЗНОЕ в зависимости от рода
-		// партиала: срез у синтетического, байт pos волны у PCM. Измерено точным совпадением
-		// с таблицей волн (docs/la32_register_map.md): для тона 61 и 64 регистр дал BA и C0
-		// - ровно то же, что pos у записей 61 и 64 в самой таблице, без единого расхождения.
+		// The same odd byte of bank 0x0C40 carries DIFFERENT things depending on the kind of
+		// partial: cutoff for a synthetic one, the wave pos byte for PCM. Measured by exact match
+		// with the wave table (docs/la32_register_map.md): for tones 61 and 64 the register gave BA and C0
+		// - exactly the same as pos of entries 61 and 64 in the table itself, without a single mismatch.
 		if (co != firstValue.end()) {
 			if (v[s].isPcm) v[s].wavePos = co->second;
 			else v[s].cutoff = co->second;
@@ -257,7 +261,7 @@ int main(int argc, char **argv) {
 		if (amp != firstValue.end()) v[s].ampTarget = amp->second;
 		const auto pl = firstValue.find(uint16_t(0x0CC0 + 2 * s));
 		const auto ph = firstValue.find(uint16_t(0x0CC1 + 2 * s));
-		// Ведущее 0xFF в потоке высоты - сброс, а не данные: берётся первое НЕ 0xFF.
+		// A leading 0xFF in the pitch stream is a reset, not data: the first NON-0xFF is taken.
 		uint8_t lo = 0, hi = 0;
 		for (const auto &w : writes) {
 			if (w.addr == uint16_t(0x0CC0 + 2 * s) && w.value != 0xFF && !lo) lo = w.value;
@@ -270,7 +274,7 @@ int main(int argc, char **argv) {
 	std::printf("\n  слот | род      | пила/адрес | ширина/длина | срез | резонанс | цикл |"
 	            " уровень | высота\n");
 	int synthSlot = -1, pcmSlot = -1;
-	// Слоты ноты по порядку выдачи: первый из пары - ведущий партиал, второй - ведомый.
+	// The note's slots in issue order: the first of the pair is the master partial, the second the slave.
 	std::vector<int> pairSlots;
 	for (int s = 0; s < D110Core::kNumHardwareVoices; ++s) {
 		if (!v[s].seen) continue;
@@ -287,8 +291,8 @@ int main(int argc, char **argv) {
 		pairSlots.push_back(s);
 	}
 
-	// Волновое ПЗУ - те же байты, что автозагрузка плагина берёт из тех же файлов MAME
-	// (waveIc8+waveIc7), собранные в том же порядке (PluginProcessor.cpp:
+	// The wave ROM - the same bytes the plugin autoload takes from the same MAME files
+	// (waveIc8+waveIc7), assembled in the same order (PluginProcessor.cpp:
 	// pcmRomPath = "assembled from MAME chip dumps: wave IC8 + IC7").
 	const auto romDir = D110AudioProcessor::getAutoRomFolder();
 	std::vector<MT32Emu::Bit16s> pcmRom;
@@ -296,8 +300,8 @@ int main(int argc, char **argv) {
 		juce::MemoryBlock ic7, ic8;
 		for (const auto &e : juce::RangedDirectoryIterator(romDir, false, "*", juce::File::findFiles)) {
 			const auto name = e.getFile().getFileName().toLowerCase();
-			if (name.contains("r15179878")) e.getFile().loadFileAsData(ic8); // wave IC8, идёт первой
-			if (name.contains("r15179880")) e.getFile().loadFileAsData(ic7); // wave IC7, идёт второй
+			if (name.contains("r15179878")) e.getFile().loadFileAsData(ic8); // wave IC8, goes first
+			if (name.contains("r15179880")) e.getFile().loadFileAsData(ic7); // wave IC7, goes second
 		}
 		if (ic7.getSize() && ic8.getSize()) {
 			juce::MemoryBlock joined(ic8);
@@ -311,19 +315,21 @@ int main(int argc, char **argv) {
 	std::printf("\n  волновое ПЗУ: %s\n", pcmRom.empty() ? "НЕ НАЙДЕНО" :
 	            (juce::String(pcmRom.size()) + " отсчётов").toRawUTF8());
 
-	// --- ПАРА партиалов как ОДИН голос ---------------------------------------------------
-	// На D-110 нота берёт два слота не потому, что звучит дважды, а потому что голос состоит
-	// из пары партиалов, и микросхема сама решает, сложить их или перемножить кольцевой
-	// модулятором. Пока они рендерились порознь, это был не голос, а его половинки.
+	// --- a PAIR of partials as ONE voice ---------------------------------------------------
+	// On the D-110 a note takes two slots not because it sounds twice but because the voice
+	// consists of a pair of partials, and the chip itself decides whether to add them or multiply
+	// them with the ring modulator. While they were rendered separately, this was not a voice but
+	// its halves.
 	//
-	// Кто ведущий, а кто ведомый, решает порядок слотов: прошивка выдаёт их подряд, и первый
-	// из пары - ведущий. Режим смешивания берётся из бита 5, найденного перебором структур.
+	// Which is master and which is slave is decided by slot order: the firmware issues them in a
+	// row, and the first of the pair is the master. The mix mode is taken from bit 5, found by
+	// stepping through structures.
 	if (int(pairSlots.size()) == 2) {
 		const Voice &m = v[pairSlots[0]], &sv = v[pairSlots[1]];
-		// ringModulated - идёт ли кольцевая модуляция вообще; mixed - подмешивается ли к её
-		// выходу ведущий партиал. По munt: init(hasRingModulatingSlave(), mixType == 1), а
-		// mixType == 1 это ровно "ведомый в кольце, ведущий подмешан" - то есть бит 5 у
-		// ведомого взведён, а у ведущего нет.
+		// ringModulated - whether ring modulation runs at all; mixed - whether the master partial is
+		// mixed into its output. Per munt: init(hasRingModulatingSlave(), mixType == 1), and
+		// mixType == 1 is exactly "slave in the ring, master mixed in" - i.e. bit 5 is set for the
+		// slave and not for the master.
 		const bool ringModulated = sv.ringNoMix;
 		const bool mixed = sv.ringNoMix && !m.ringNoMix;
 		std::printf("\n  === голос как пара: ведущий слот %d, ведомый слот %d ===\n",
@@ -370,9 +376,9 @@ int main(int argc, char **argv) {
 				outPair[(size_t)i] = pair.nextOutSample();
 				peakPair = std::max(peakPair, std::abs(outPair[(size_t)i]));
 			}
-			// Печатается с запасом знаков намеренно: кольцевая модуляция ПЕРЕМНОЖАЕТ два
-			// сигнала, и произведение двух тихих партиалов на четырёх знаках выглядит нулём,
-			// хотя нулём не является. Один раз это уже чуть не прочиталось как «не работает».
+			// Printed with extra digits on purpose: ring modulation MULTIPLIES two signals, and the
+			// product of two quiet partials looks like zero at four digits although it is not zero. Once
+			// it was almost read as "does not work".
 			std::printf("  пик пары: %.8f\n", double(peakPair));
 			const juce::File wavPair =
 				outDir.getChildFile("la32_pair_note" + juce::String(note) + ".wav");
@@ -395,16 +401,16 @@ int main(int argc, char **argv) {
 
 	if (synthSlot < 0) { std::printf("\nсинтетического партиала в этой ноте нет\n"); return 0; }
 
-	// Прогон через модель микросхемы. Амплитуда и срез держатся постоянными: здесь
-	// проверяется разбор высоты и формы волны, а огибающие уже проверены отдельно.
+	// Run through the chip model. Amplitude and cutoff are held constant: pitch and waveform
+	// decoding is checked here, and the envelopes have already been checked separately.
 	const Voice &vv = v[synthSlot];
 	MT32Emu::LA32FloatWaveGenerator wg;
 	wg.initSynth(vv.sawtooth, vv.pulseWidth, uint8_t(vv.resonance ? vv.resonance : 1));
-	// Генератор ждёт не уровень, а его ЛОГАРИФМИЧЕСКОЕ ДОПОЛНЕНИЕ: у munt в Partial.cpp
-	// стоит `ampRampVal = 67117056 - ampRamp.nextValue()`, и дальше `amp = 2^(-ampVal/2^22)`,
-	// то есть большее число значит тише. Регистр же несёт именно УРОВЕНЬ, и подавать его
-	// напрямую - значит вывернуть громкость наизнанку: полный уровень 255 дал бы тишину.
-	// Шаг единицы уровня выходит 2^(1/16), то есть около 0.376 дБ.
+	// The generator expects not the level but its LOGARITHMIC COMPLEMENT: munt's Partial.cpp has
+	// `ampRampVal = 67117056 - ampRamp.nextValue()`, and then `amp = 2^(-ampVal/2^22)`,
+	// i.e. a bigger number means quieter. The register, however, carries the LEVEL, and feeding it
+	// directly would turn loudness inside out: full level 255 would give silence.
+	// One level step comes out as 2^(1/16), i.e. about 0.376 dB.
 	const MT32Emu::Bit32u amp = kAmpFull - (MT32Emu::Bit32u(vv.ampTarget) << 18);
 	const MT32Emu::Bit32u cutoff = MT32Emu::Bit32u(vv.cutoff) << 18;
 
@@ -413,10 +419,10 @@ int main(int argc, char **argv) {
 	for (int i = 0; i < samples; ++i)
 		out[(size_t)i] = wg.generateNextSample(amp, vv.pitch, cutoff);
 
-	// --- то же, но с ЖИВОЙ огибающей -------------------------------------------------
-	// Выше амплитуда держалась постоянной, чтобы проверить высоту и громкость по отдельности.
-	// Здесь в рендер подаётся то, что прошивка на самом деле велела микросхеме делать во
-	// времени: ступени рампы по мере их прихода. Закон движения тот же, что в D110Core.
+	// --- the same, but with a LIVE envelope -------------------------------------------------
+	// Above, the amplitude was held constant to check pitch and loudness separately.
+	// Here the render is fed what the firmware actually told the chip to do over time: the ramp
+	// steps as they arrive. The law of motion is the same as in D110Core.
 	{
 		struct Ev { double ms; uint8_t inc, target; };
 		std::vector<Ev> events;
@@ -462,8 +468,8 @@ int main(int argc, char **argv) {
 			out2[(size_t)i] = wg2.generateNextSample(a, vv.pitch, cutoff);
 		}
 
-		// Огибающая печатается по огибающей ЗВУКА, а не по внутреннему счётчику: иначе
-		// проверялось бы, что переменная равна сама себе.
+		// The envelope is printed from the envelope of the SOUND, not from an internal counter:
+		// otherwise it would be checking that a variable equals itself.
 		std::printf("\n  огибающая рендера (пик по 25 мс, дБ от максимума):\n   ");
 		double top = 0.0;
 		std::vector<double> env;
@@ -494,7 +500,7 @@ int main(int argc, char **argv) {
 		std::printf("  с огибающей: %s\n", wav2.getFullPathName().toRawUTF8());
 	}
 
-	// Меряется установившийся кусок, без первых миллисекунд.
+	// The settled stretch is measured, without the first milliseconds.
 	const std::vector<float> steady(out.begin() + samples / 4, out.end());
 	const double got = fundamentalHz(steady, kChipRate);
 	const double want440 = noteHz(note, 440.0), want442 = noteHz(note, 442.0);
@@ -508,9 +514,9 @@ int main(int argc, char **argv) {
 		const double cents = 1200.0 * std::log2(got / want442);
 		std::printf("  расхождение с 442: %+8.1f цента   (октав: %+.2f)\n", cents, cents / 1200.0);
 	}
-	// Пик проверяется не «на глаз», а против того, что предсказывает сам закон громкости:
-	// каждая единица уровня - 2^(1/16). Если разбор уровня верен, предсказание и измерение
-	// обязаны сойтись с точностью до формы волны (у неё пик всегда ниже полной шкалы).
+	// The peak is checked not "by eye" but against what the loudness law itself predicts:
+	// each level unit is 2^(1/16). If the level decoding is right, prediction and measurement
+	// must agree to within the waveform (whose peak is always below full scale).
 	const double predicted = std::pow(2.0, -double(kAmpFull - (MT32Emu::Bit32u(vv.ampTarget) << 18))
 	                                            / 4194304.0);
 	std::printf("  пик: %.4f   потолок по уровню %d: %.4f   ниже потолка на %.1f дБ\n",
@@ -528,7 +534,7 @@ int main(int argc, char **argv) {
 			std::unique_ptr<juce::AudioFormatWriter> writer(
 				fmt.createWriterFor(stream.get(), kChipRate, 1, 16, {}, 0));
 			if (writer != nullptr) {
-				stream.release(); // писатель им теперь владеет
+				stream.release(); // the writer owns it now
 				writer->writeFromAudioSampleBuffer(buf, 0, samples);
 			}
 		}

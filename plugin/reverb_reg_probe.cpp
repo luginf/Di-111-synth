@@ -1,29 +1,29 @@
-// Каким адресом и каким значением прошивка задаёт ТИП ревербератора.
+// By what address and what value the firmware sets the reverb TYPE.
 //
-// Прошлый зонд (plugin/so_trace_probe.cpp) закрыл защёлку SO: тип её не трогает, при любом
-// из восьми типов при загрузке пишется одно и то же. Отсюда был сделан вывод, что тип
-// уходит по шине звуковой платы 0x0C00-0x0D02. Сервисные заметки говорят, что вывод
-// неверен: у микросхемы ревербератора IC5 СВОЙ вход от процессора - пять бит данных D1-D5
-// и два строба STB0/STB1, собранных из выходов вентильной матрицы
-// (STB0 = НЕ(EXIO1 · WL), STB1 = НЕ(EXIO2 · WL)). Подробности и откуда это взято -
+// The previous probe (plugin/so_trace_probe.cpp) closed the SO latch: the type does not touch it, the same thing
+// is written at load for any of the eight types. From that it was concluded that the type
+// goes out over the sound board bus 0x0C00-0x0D02. The service notes say that conclusion
+// is wrong: the reverb chip IC5 has ITS OWN input from the processor - five data bits D1-D5
+// and two strobes STB0/STB1, built from gate array outputs
+// (STB0 = NOT(EXIO1 · WL), STB1 = NOT(EXIO2 · WL)). Details and where this comes from -
 // docs/service_notes_findings.md.
 //
-// Адреса EXIO1/EXIO2 внутри матрицы и на схеме не названы, поэтому здесь они НЕ
-// угадываются: перехват берёт весь свободный участок 0x0400-0x0BFF целиком
-// (D110Core::kExtIoTapBase) и печатает всё, что туда записали, вместе с адресом
-// подпрограммы.
+// The EXIO1/EXIO2 addresses inside the array are not named on the schematic either, so they are NOT
+// guessed here: the tap takes the whole free range 0x0400-0x0BFF at once
+// (D110Core::kExtIoTapBase) and prints everything written there, together with the address
+// of the subroutine.
 //
-// Устройство опыта:
-//   * КОНТРОЛЬ ПЕРЕД ВЫВОДОМ. «Ни одной записи» - отрицательный результат, и верить ему
-//     нельзя, пока тот же захват не покажет записи там, где они заведомо есть. Поэтому
-//     сначала печатается загрузка целиком: если перехват мёртв, это видно сразу, а не
-//     превращается в вывод про D-110.
-//   * КОНТРОЛЬНЫЙ ПРОГОН БЕЗ СМЕНЫ ТИПА. Те же нажатия и та же нота, но тип не меняется.
-//     Без него «значение изменилось» ничего не значит: измениться оно могло от самих
-//     нажатий или от ноты.
-//   * ДВА РАЗДРАЖИТЕЛЯ. После установки типа берётся и пауза, и нота: если микросхема
-//     программируется не в момент правки, а при следующем распределении голоса, разница
-//     появится только после ноты.
+// Design of the experiment:
+//   * CONTROL BEFORE CONCLUSIONS. "Not a single write" is a negative result, and it cannot be
+//     trusted until the same capture shows writes where they certainly exist. So
+//     the whole boot is printed first: if the tap is dead, that is visible at once, and does not
+//     get turned into a conclusion about the D-110.
+//   * CONTROL RUN WITHOUT A TYPE CHANGE. The same key presses and the same note, but the type does not change.
+//     Without it "the value changed" means nothing: it could have changed from the key
+//     presses themselves or from the note.
+//   * TWO STIMULI. After the type is set both a pause and a note are taken: if the chip
+//     is programmed not at the moment of the edit but at the next voice allocation, the difference
+//     appears only after the note.
 #include "Source/PluginProcessor.h"
 
 #include <algorithm>
@@ -124,10 +124,10 @@ void press(D110AudioProcessor &proc, const char *name, int times = 1) {
 	std::printf("  !!! нет такой кнопки: %s\n", name);
 }
 
-// Ноту берём через прошивку, а не прямо в движок: программировать ревербератор она стала бы
-// в своём собственном распределении голоса, а не по приходу MIDI в чужую половину.
+// We take the note through the firmware, not directly into the engine: it would program the reverb
+// in its own voice allocation, and not on MIDI arriving in someone else's half.
 void playNote(D110AudioProcessor &proc, uint8_t note) {
-	const uint8_t on[3] = {0x91, note, 100}; // канал 2 - это партия 1 по заводской раскладке
+	const uint8_t on[3] = {0x91, note, 100}; // channel 2 is part 1 in the factory layout
 	const uint8_t off[3] = {0x81, note, 0};
 	proc.getCore().pushMidi(on, 3);
 	render(proc, 1.2);
@@ -135,11 +135,11 @@ void playNote(D110AudioProcessor &proc, uint8_t note) {
 	render(proc, 0.6);
 }
 
-// Сводка одного окна захвата. Группировка идёт по ПАРЕ «адрес и подпрограмма», а не по
-// одному адресу: по 0x021A пишут ДВЕ разные вещи - опрос панели гонит туда стробы столбцов
-// сотнями в секунду, а правка ревербератора пишет один раз, - и сваленные в одну строку
-// значения выглядят как один поток, в котором ничего не разобрать.
-using Key = std::pair<uint16_t, uint16_t>; // адрес порта и адрес писавшей подпрограммы
+// Summary of one capture window. Grouping is by the PAIR "address and subroutine", not by
+// a single address: TWO different things write to 0x021A - panel scanning drives column strobes there
+// hundreds of times a second, while a reverb edit writes once, - and values lumped into one line
+// look like a single stream in which nothing can be told apart.
+using Key = std::pair<uint16_t, uint16_t>; // port address and the address of the subroutine that wrote
 
 struct Window {
 	std::map<Key, std::set<uint8_t>> values;
@@ -176,9 +176,9 @@ void printWindow(const Window &w, const char *indent) {
 		            indent, (unsigned long long)w.dropped);
 }
 
-// Идём в Patch Edit на страницу Reverb Type. Дорога снята зондом d110_reverb_path:
-// Patch -> Edit открывает Name, дальше Group+ листает параметры (Name, Reverb Type,
-// Reverb Time, Reverb Level), а значение меняет Number+.
+// We go into Patch Edit to the Reverb Type page. The route was recorded by the d110_reverb_path probe:
+// Patch -> Edit opens Name, then Group+ pages through the parameters (Name, Reverb Type,
+// Reverb Time, Reverb Level), and Number+ changes the value.
 void toReverbType(D110AudioProcessor &proc) {
 	press(proc, "Exit", 2);
 	press(proc, "Patch");
@@ -196,8 +196,8 @@ int main() {
 	D110AudioProcessor proc;
 	proc.prepareToPlay(kSampleRate, kBlock);
 
-	// Захват включается ДО подачи питания: загрузка - единственное место, где защёлка SO
-	// заведомо пишется, и она же контроль работоспособности перехвата.
+	// Capture is switched on BEFORE power is applied: boot is the only place where the SO latch
+	// is certainly written, and it doubles as the tap's health check.
 	proc.getCore().startSoTrace();
 	proc.setPoweredOn(true);
 	render(proc, 10.0);
@@ -205,7 +205,7 @@ int main() {
 	            proc.getCore().isRunning() ? "работает" : "НЕТ",
 	            g_cgrom.empty() ? "НЕ НАЙДЕН" : "загружен");
 
-	// ---- КОНТРОЛЬ: жив ли перехват вообще ---------------------------------------------
+	// ---- CONTROL: is the tap alive at all ---------------------------------------------
 	std::printf("\n=== КОНТРОЛЬ: всё, что записано во внешний ввод-вывод при загрузке ===\n");
 	std::printf("  (перехват стоит на 0x0200-0x0201, 0x0280-0x0281 и 0x0400-0x0BFF)\n");
 	{
@@ -222,10 +222,10 @@ int main() {
 		}
 	}
 
-	// ---- развёртка типа ----------------------------------------------------------------
-	// Тип живёт в ОЗУ по 0x2D95 и меняется от Number+ на своей странице; это уже измерено
-	// зондом d110_reverb_path, и здесь оно ещё раз печатается рядом - чтобы «значение в ОЗУ
-	// не изменилось» нельзя было спутать с «микросхеме ничего не написали».
+	// ---- type sweep ----------------------------------------------------------------
+	// The type lives in RAM at 0x2D95 and changes with Number+ on its page; this has already been measured
+	// by the d110_reverb_path probe, and here it is printed again alongside - so that "the RAM value
+	// did not change" cannot be confused with "nothing was written to the chip".
 	auto reverbTypeByte = [&proc] {
 		std::vector<uint8_t> ram(D110Core::kRamSize, 0);
 		proc.getCore().getRam(ram.data());
@@ -235,7 +235,7 @@ int main() {
 	std::printf("\n=== развёртка: восемь типов ревербератора ===\n");
 	toReverbType(proc);
 	std::printf("  страница: \"%s\"\n", screen(proc).c_str());
-	press(proc, "Number-", 10); // на нижний упор, чтобы шаги были предсказуемы
+	press(proc, "Number-", 10); // to the lower stop, so the steps are predictable
 	render(proc, 0.5);
 	std::printf("  после спуска на упор: \"%s\"  ОЗУ 0x2D95 = %d\n",
 	            screen(proc).c_str(), reverbTypeByte());
@@ -263,9 +263,9 @@ int main() {
 				perAddrAcrossTypes[key].insert(values.begin(), values.end());
 	}
 
-	// ---- КОНТРОЛЬНЫЙ ПРОГОН: те же нажатия и та же нота, но тип НЕ меняется -------------
-	// Без него «по этому адресу значения разные» не значит «их задаёт тип»: их могли задать
-	// сами нажатия, нота или просто время.
+	// ---- CONTROL RUN: the same presses and the same note, but the type does NOT change -------------
+	// Without it "the values at this address differ" does not mean "the type sets them": they could have been set by
+	// the presses themselves, the note, or just time.
 	std::printf("\n=== КОНТРОЛЬ: те же действия, но без смены типа ===\n");
 	press(proc, "Exit", 2);
 	std::printf("  экран: \"%s\"  ОЗУ 0x2D95 = %d (дальше не меняется)\n",
@@ -273,7 +273,7 @@ int main() {
 	std::map<Key, std::set<uint8_t>> perAddrControl;
 	for (int step = 0; step < 8; ++step) {
 		proc.getCore().startSoTrace();
-		press(proc, "Group+"); // нажатие, ничего не правящее
+		press(proc, "Group+"); // a press that edits nothing
 		render(proc, 1.0);
 		playNote(proc, 60);
 		const Window w = collect(proc);
@@ -288,12 +288,12 @@ int main() {
 		printWindow(c, "    ");
 	}
 
-	// ---- ответ --------------------------------------------------------------------------
+	// ---- answer --------------------------------------------------------------------------
 	std::printf("\n=== ответ ===\n");
-	// Решает не число разных значений, а сравнение с контролем: адрес, куда пишут ТОЛЬКО
-	// при смене типа, называет путь однозначно, сколько бы бит он ни нёс. Тип разложен по
-	// двум портам (биты 1-3 в 0x021A, бит 0 в 0x0800), и требование «восемь разных значений
-	// на одном адресе» отвергло бы верный ответ - первая редакция этого зонда так и делала.
+	// What decides is not the number of different values but the comparison with the control: an address written to ONLY
+	// on a type change names the path unambiguously, however many bits it carries. The type is split across
+	// two ports (bits 1-3 at 0x021A, bit 0 at 0x0800), and a requirement of "eight different values
+	// at one address" would reject the right answer - the first edition of this probe did exactly that.
 	std::printf("  порт  | из ПЗУ | значений при смене типа | при контроле | вывод\n");
 	for (const auto &[key, values] : perAddrAcrossTypes) {
 		const size_t ctrl = perAddrControl.count(key) ? perAddrControl.at(key).size() : 0;

@@ -1,8 +1,8 @@
-// Проверяет перенесённые шесть индивидуальных выходов не на компиляции, а на маршрутизации
-// звука: включает все 6 доп. шин, ставит партии 1 Output Assign на разные значения (MIX,
-// потом INDIVIDUAL 1, потом INDIVIDUAL 3) и меряет энергию в КАЖДОМ из восьми каналов
-// (MIX L/R + 6 моно) - партия обязана звучать РОВНО в одном месте, а не размазываться или
-// молчать всюду.
+// Verifies the ported six individual outputs not by compilation but by sound routing:
+// enables all 6 extra buses, sets part 1's Output Assign to different values (MIX, then
+// INDIVIDUAL 1, then INDIVIDUAL 3) and measures the energy in EACH of the eight channels
+// (MIX L/R + 6 mono) - the part must sound in EXACTLY one place, not smear across or be
+// silent everywhere.
 #include "Source/PluginProcessor.h"
 
 #include <cstdio>
@@ -31,7 +31,7 @@ void setSystemByte(D110AudioProcessor &proc, int offset, juce::uint8 value) {
 }
 
 double energyOf(const juce::AudioBuffer<float> &buffer, int channel) {
-	if (channel >= buffer.getNumChannels()) return -1.0; // шина отсутствует в буфере вовсе
+	if (channel >= buffer.getNumChannels()) return -1.0; // the bus is absent from the buffer entirely
 	double e = 0.0;
 	const float *d = buffer.getReadPointer(channel);
 	for (int i = 0; i < buffer.getNumSamples(); ++i) e += double(d[i]) * d[i];
@@ -46,8 +46,8 @@ int main() {
 
 	D110AudioProcessor proc;
 
-	// Включаем все шесть доп. шин - по умолчанию они выключены (createBuses()), и без этого
-	// плагин пойдёт по обычному, немного-выходному пути, который проверять тут нечего.
+			// Enable all six extra buses - they are off by default (createBuses()), and without
+			// this the plugin takes the ordinary, few-output path, which there is nothing to check.
 	for (int i = 1; i <= 6; ++i) {
 		auto *bus = proc.getBus(false, i);
 		if (bus != nullptr) bus->setCurrentLayout(juce::AudioChannelSet::mono());
@@ -76,11 +76,11 @@ int main() {
 
 	for (const auto &c : kCases) {
 		std::printf("\n=== Output Assign = %d (%s) ===\n", c.assign, c.name);
-		setSystemByte(proc, 1, 0); // ревербератор выключен - чтобы INDIVIDUAL 5/6 не молчали по правилу
+		setSystemByte(proc, 1, 0); // reverb off - so INDIVIDUAL 5/6 are not silenced by the rule
 		juce::AudioBuffer<float> settle(8, kBlock);
 		render(proc, settle, 0.3);
 
-		proc.sendTimbreTempParam(0, 6, juce::uint8(c.assign)); // партия 1, байт 6 = Output Assign
+		proc.sendTimbreTempParam(0, 6, juce::uint8(c.assign)); // part 1, byte 6 = Output Assign
 		render(proc, settle, 0.2);
 
 		juce::AudioBuffer<float> buffer(8, kBlock);

@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "PitchBendGuard.h"
 #include "sequencer/D110SequencerSongsFile.h"
 
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -1086,32 +1087,8 @@ void D110AudioProcessor::processBlock(juce::AudioBuffer<float> &buffer, juce::Mi
 	buffer.clear();
 
 	// A VST3 host that resets every parameter to its default on load (Carla) makes JUCE's
-	// MIDI-CC shadow parameters emit a Pitch Bend of 0 (fully down, not centred). Drop a
-	// pitch bend of exactly 0 on a channel until a real one (!= 0) has been seen there.
-	{
-		bool rogue = false;
-		for (const auto meta : midiMessages) {
-			const auto m = meta.getMessage();
-			if (m.isPitchWheel() && m.getPitchWheelValue() == 0 && !pitchBendSeen[(size_t) m.getChannel()]) { rogue = true; break; }
-		}
-		if (rogue) {
-			midiRemapScratch.clear();
-			for (const auto meta : midiMessages) {
-				const auto m = meta.getMessage();
-				if (m.isPitchWheel()) {
-					if (m.getPitchWheelValue() == 0 && !pitchBendSeen[(size_t) m.getChannel()]) continue;
-					pitchBendSeen[(size_t) m.getChannel()] = true;
-				}
-				midiRemapScratch.addEvent(m, meta.samplePosition);
-			}
-			midiMessages.swapWith(midiRemapScratch);
-		} else {
-			for (const auto meta : midiMessages) {
-				const auto m = meta.getMessage();
-				if (m.isPitchWheel()) pitchBendSeen[(size_t) m.getChannel()] = true;
-			}
-		}
-	}
+	// MIDI-CC shadow parameters emit a Pitch Bend of 0 (fully down, not centred).
+	dropRogueInitialPitchBend(midiMessages, midiRemapScratch, pitchBendSeen);
 
 	// Rechannelize host-fed external MIDI (a DAW routing a real controller to this plugin's
 	// MIDI input, in VST3) onto the on-screen keyboard's own selected channel - Alan's own USB

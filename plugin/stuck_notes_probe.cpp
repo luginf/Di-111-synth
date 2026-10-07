@@ -1,20 +1,20 @@
-// «Нажимаю на всех партиях ноты, нота залипает и не отходит».
+// "I press notes on all parts, a note sticks and does not release."
 //
-// Все прежние прогоны d110_polyphony шли по ОДНОЙ партии, на канале 2, и залипания не
-// показали ни разу: 168 нот принято, 167 отпущено, в покое ноль слотов и ноль партиалов.
-// Разница, которую называет владелец, - именно во множестве партий сразу, и её ни один
-// стенд до сих пор не воспроизводил.
+// All earlier d110_polyphony runs went through ONE part, on channel 2, and never showed
+// a stuck note: 168 notes taken, 167 released, at rest zero slots and zero partials.
+// The difference the owner names is precisely many parts at once, and no test bench has
+// reproduced it so far.
 //
-// Почему это может быть не всё равно. Снятие ноты в движке рождается ДВУМЯ путями
-// (D110Core.cpp, releaseContext): прошивка пометила голос возвращённым - f460 бит 6, - либо
-// контекст отдали новой ноте, пока старая звучала, то есть голос украли. Пока слоты
-// текли, воровство шло постоянно и второй путь работал за первый. Теперь слоты
-// возвращаются, воровства нет, и весь груз лёг на f460. На одной партии он держит; вопрос
-// в том, держит ли на девяти, когда контекстов разбирают вдесятеро больше.
+// Why it may matter. Note release in the engine is born by TWO paths
+// (D110Core.cpp, releaseContext): the firmware marked the voice as returned - f460 bit 6 - or
+// the context was handed to a new note while the old one still sounded, i.e. the voice was stolen.
+// While slots leaked, stealing went on constantly and the second path worked in place of the first.
+// Now slots are returned, there is no stealing, and the whole load fell on f460. On one part it
+// holds; the question is whether it holds on nine, when contexts are consumed ten times as often.
 //
-// Меряется накоплением по кругам, а не одним снимком: залипание - это то, что НЕ уходит,
-// поэтому единственный честный признак - остаток при отпущенных клавишах, и он должен
-// расти от круга к кругу, если жалоба верна.
+// Measured by accumulation over rounds, not by a single snapshot: a stuck note is what does NOT
+// go away, so the only honest sign is the remainder with keys released, and it must
+// grow from round to round if the complaint is correct.
 #include "Source/PluginProcessor.h"
 
 #include <cstdio>
@@ -25,7 +25,7 @@ namespace {
 constexpr double kSampleRate = 44100.0;
 constexpr int kBlock = 512;
 
-// Партия N отвечает на канале N+1 у заводского прибора, партия 9 - ритм на канале 10.
+// Part N answers on channel N+1 on a factory unit, part 9 is rhythm on channel 10.
 constexpr int kFirstChannel = 2;
 constexpr int kNumParts = 9;
 
@@ -79,9 +79,9 @@ int main() {
 	std::printf("     |       |          | нарастающим итогом при ОТПУЩЕННЫХ клавишах\n");
 
 	for (int round = 1; round <= 6; ++round) {
-		// Аккорд по всем девяти партиям разом - именно так, как описана жалоба. Ноты
-		// разные у каждой партии, чтобы прошивке негде было счесть их повтором и погасить
-		// старую вместо выдачи новой.
+		// A chord across all nine parts at once - exactly as the complaint describes. The notes
+		// differ per part so the firmware has no way to count them as a repeat and silence the
+		// old one instead of issuing a new one.
 		juce::MidiBuffer on;
 		for (int p = 0; p < kNumParts; ++p)
 			on.addEvent(juce::MidiMessage::noteOn(kFirstChannel + p, 48 + p * 2, 0.9f), 0);
@@ -92,8 +92,8 @@ int main() {
 			off.addEvent(juce::MidiMessage::noteOff(kFirstChannel + p, 48 + p * 2), 0);
 		render(proc, 0.2, &off);
 
-		// Три секунды тишины ПОСЛЕ снятия: у любого честного затухания этого с запасом
-		// хватает, а залипшая нота столько же и останется висеть.
+		// Three seconds of silence AFTER release: any honest decay has plenty of margin in that,
+		// while a stuck note would just stay hanging for the same time.
 		render(proc, 3.0);
 
 		const uint64_t ons = proc.getCore().firmwareNoteOns();
@@ -107,18 +107,18 @@ int main() {
 	std::printf("\nчитается так: разница и партиалы обязаны стоять на месте от круга к кругу.\n"
 	            "Если они РАСТУТ - ноты вправду не заканчиваются, и жалоба воспроизведена.\n");
 
-	// Разведение по одной партии. Общий прогон выше показывает, СКОЛЬКО не закончилось, но
-	// не говорит, у кого именно, - а девять партий устроены не одинаково: восьмая это ритм,
-	// где удар односторонний и снятие приходит не так, как у клавишной партии. Пока не
-	// известно, какая партия оставляет остаток, любая правка будет наугад.
+	// Breakdown by single part. The overall run above shows HOW MANY did not end, but
+	// not on whose side - and the nine parts are not alike: the eighth is rhythm,
+	// where the strike is one-sided and the release comes differently from a keyboard part. Until it is
+	// known which part leaves a remainder, any fix would be a shot in the dark.
 	std::printf("\n=== по одной партии ===\n");
 	std::printf("партия | канал | взято | отпущено | разница | партиалов после\n");
 	for (int p = 0; p < kNumParts; ++p) {
 		const uint64_t onsBefore = proc.getCore().firmwareNoteOns();
 		const uint64_t offsBefore = proc.getCore().firmwareNoteOffs();
 
-		// Три ноты подряд, каждая со своим снятием - меньше не покажет повторяемости,
-		// больше не нужно, потому что остаток виден уже на первой.
+		// Three notes in a row, each with its own release - fewer would not show repeatability,
+		// more is not needed, because the remainder is visible already on the first.
 		for (int i = 0; i < 3; ++i) {
 			juce::MidiBuffer on;
 			on.addEvent(juce::MidiMessage::noteOn(kFirstChannel + p, 48 + i * 3, 0.9f), 0);

@@ -1,14 +1,14 @@
-// Кто и когда пишет в таблицу слотов LA32 - и освобождает ли её хоть кто-нибудь.
+// Who writes to the LA32 slot table, and when - and does anyone ever free it.
 //
-// Прибор играет примерно две ноты за раз вместо восьми, и измерено, что при отпущенных
-// клавишах у прошивки занят 31 слот из 32 (см. `d110_polyphony`). Обработчик прерывания по
-// 0x3138 выбирает путь по этой самой таблице - `rams[0x2DC0 + 2v] == 0x80` значит «слот
-// свободен», - так что всё упирается в вопрос, кто возвращает туда 0x80.
+// The instrument plays about two notes at a time instead of eight, and it has been measured that with keys
+// released the firmware has 31 of 32 slots busy (see `d110_polyphony`). The interrupt handler at
+// 0x3138 picks its path by this very table - `rams[0x2DC0 + 2v] == 0x80` means "slot
+// is free" - so it all comes down to the question of who puts 0x80 back there.
 //
-// Спрашивать об этом надо не дизассемблер, а работающую прошивку: перехват записей в окно
-// диспетчеризации (CPU 0xEDC0-0xEFFF) уже есть, и он говорит АДРЕС, ЗНАЧЕНИЕ и ТОТ САМЫЙ
-// PC, откуда запись сделана. Если 0x80 не пишет никто - освобождать слоты некому, и это
-// ответ. Если пишет, но редко - ответ другой, и адрес скажет, какая подпрограмма это делает.
+// The one to ask is not a disassembler but the running firmware: the write tap on the dispatch
+// window (CPU 0xEDC0-0xEFFF) already exists, and it reports the ADDRESS, the VALUE and the VERY SAME
+// PC the write was made from. If nobody writes 0x80 - there is nobody to free slots, and that is the
+// answer. If someone does, but rarely - the answer is different, and the address will tell which subroutine does it.
 #include "Source/PluginProcessor.h"
 
 #include <algorithm>
@@ -21,7 +21,7 @@ namespace {
 
 constexpr double kSampleRate = 44100.0;
 constexpr int kBlock = 512;
-constexpr int kChannel = 2;   // партия 1 у заводского прибора
+constexpr int kChannel = 2;   // part 1 on a factory instrument
 
 void renderBlocks(D110AudioProcessor &proc, int blocks, juce::MidiBuffer *first = nullptr) {
 	juce::AudioBuffer<float> audio(2, kBlock);
@@ -63,32 +63,32 @@ int main() {
 	std::printf("занятых слотов до игры: %d из %d\n", busySlots(proc),
 	            D110Core::kNumHardwareVoices);
 
-	// ИСПРАВЛЕНО: предыдущая версия этого зонда заявляла переключение на La32Ramps, но сам
-	// вызов setStuckPolicy потерялся при правке и не попал в закоммиченный файл - все опыты
-	// «под рампами» на самом деле шли под заводским La32Stub. Обнаружено разбором git-истории
-	// (в 879137a и 69619b9 вызова нет), а не по ошибке в результатах - те выглядели правдоподобно
-	// именно потому, что оба испытания синхронизированы через один и тот же обработчик и дают
-	// похожие числа. Проверяется явно, до сборки, а не после.
+	// FIXED: the previous version of this probe claimed to switch to La32Ramps, but the
+	// setStuckPolicy call itself was lost during an edit and did not make it into the committed file - all the
+	// experiments "under ramps" actually ran under the factory La32Stub. Discovered by going through the git history
+	// (the call is absent in 879137a and 69619b9), not from an error in the results - those looked plausible
+	// precisely because both trials are synchronized through the same handler and give
+	// similar numbers. It is now checked explicitly, before the run, not after.
 	proc.getCore().setStuckPolicy(D110Core::StuckPolicy::La32Ramps);
-	// Кодировка байта состояния для рамп (rampStatusByte) - СВОЯ, отдельная от той, что уже
-	// доказана дизассемблером для La32Stub (encodeLa32Status, режим по умолчанию: слот+1, бит
-	// 7 сброшен - docs/la32_register_map.md, «номер в байте состояния - это слот + 1»). При
-	// режиме 0 (умолчание) rampStatusByte отдаёт голый slot БЕЗ +1 - другой слот, другой байт
-	// в edc0/eec0. Режим 1 у rampStatusByte даёт (slot+1)&0x1F без флага банка - то самое.
+	// The status byte encoding for ramps (rampStatusByte) is its OWN, separate from the one already
+	// proven by the disassembler for La32Stub (encodeLa32Status, default mode: slot+1, bit
+	// 7 clear - docs/la32_register_map.md, "the number in the status byte is slot + 1"). In
+	// mode 0 (default) rampStatusByte returns the bare slot WITHOUT +1 - a different slot, a different byte
+	// in edc0/eec0. Mode 1 of rampStatusByte gives (slot+1)&0x1F without the bank flag - the right one.
 	proc.getCore().setLa32StatusMode(1);
 	std::printf("политика переключена на La32Ramps, режим байта состояния = 1 (слот+1)\n");
 
-	// --- гипотеза 1: тон в два партиала может требовать освобождения ОБОИХ разом ---
+	// --- hypothesis 1: a two-partial tone may need BOTH to be freed at once ---
 	//
-	// Слот 0 в опыте выше следил только за одним партиалом ноты. Если релиз одного партиала
-	// ждёт релиза второго - через общий счётчик ссылок по партии, f283[part]/f284[part], -
-	// то у одного из двух слотов eec0 должен доходить до 7 первым и там же зависать, ожидая
-	// второго. Здесь следим за слотами 0 И 1 в одном окне времени.
+	// Slot 0 in the experiment above tracked only one partial of the note. If the release of one partial
+	// waits for the release of the other - via a shared per-part reference counter, f283[part]/f284[part] -
+	// then in one of the two slots eec0 must reach 7 first and hang there, waiting for
+	// the other. Here we watch slots 0 AND 1 in the same time window.
 	std::printf("\nодна нота (2 партиала), слежение за ОБОИМИ слотами разом:\n");
 	{
-		// Диспетчер вращает слоты (в прежних трассах доставались 4,5,6,7...), поэтому нельзя
-		// предполагать, что новая нота попадёт в 0 и 1 - это остатки от предыдущего опыта.
-		// Слоты этой ноты берутся по факту: снимок ДО и снимок ПОСЛЕ, разница и есть ответ.
+		// The dispatcher rotates slots (earlier traces got 4,5,6,7...), so we cannot
+		// assume the new note lands in 0 and 1 - those are leftovers of the previous experiment.
+		// This note's slots are taken by fact: a snapshot BEFORE and a snapshot AFTER, the difference is the answer.
 		std::vector<uint8_t> before(D110Core::kRamSize, 0);
 		proc.getCore().getRam(before.data());
 
@@ -135,10 +135,10 @@ int main() {
 	}
 
 
-	// ОДНА нота, ДОЛГО: шесть коротких нот подряд не дают огибающей дожить своим настоящим
-	// временем ни до конца затухания, ни тем более до release после снятия. Здесь и держим
-	// нажатой три секунды, и держим тишину после снятия пять - раз в полсекунды печатая
-	// счётчик прямо во время игры, а не одним снимком по итогу.
+	// ONE note, LONG: six short notes in a row do not let the envelope live out its real
+	// time either to the end of the decay or, still less, to the release after key-off. Here we hold
+	// the key down for three seconds, and hold silence after release for five - printing the counter
+	// every half second during play, and not as a single end-of-run snapshot.
 	proc.getCore().setVoiceCtxTap(true);
 	std::printf("\nодна нота, слежение за eec0[слот 0] и edc0[слот 0] в реальном времени:\n");
 	{
@@ -147,7 +147,7 @@ int main() {
 		renderBlocks(proc, 1, &on);
 		bool released = false;
 		for (int step = 0; step < 16; ++step) {
-			renderBlocks(proc, 45);   // ~0.5 с на шаг
+			renderBlocks(proc, 45);   // ~0.5 s per step
 			std::vector<uint8_t> ram(D110Core::kRamSize, 0);
 			proc.getCore().getRam(ram.data());
 			std::printf("  t=%4.1fs  edc0[0]=0x%02X  eec0[0]=%d%s\n", (step + 1) * 0.5,
@@ -163,7 +163,7 @@ int main() {
 	}
 	proc.getCore().setVoiceCtxTap(false);
 
-	// Тот же прогон из шести нот, для сравнения счётчиков по итогу.
+	// The same six-note run, for comparing the counters at the end.
 	proc.getCore().setVoiceCtxTap(true);
 	for (int i = 0; i < 6; ++i) {
 		juce::MidiBuffer on;
@@ -179,9 +179,9 @@ int main() {
 	const auto events = proc.getCore().takeCtxEvents();
 	std::printf("событий записи в окно диспетчеризации: %d\n\n", int(events.size()));
 
-	// Только сама таблица слотов. Перехват пишет СМЕЩЕНИЕ В ОЗУ, а не адрес процессора:
-	// таблица - это rams 0x2DC0 + 2*slot, то есть 0x2DC0..0x2DFF. Первая версия этого зонда
-	// фильтровала по 0xEDC0 и получила «ноль записей» там, где их девяносто две.
+	// Only the slot table itself. The tap records the RAM OFFSET, not the CPU address:
+	// the table is rams 0x2DC0 + 2*slot, i.e. 0x2DC0..0x2DFF. The first version of this probe
+	// filtered on 0xEDC0 and got "zero writes" where there are ninety-two.
 	struct Key { uint16_t pc; uint8_t value; };
 	std::map<uint32_t, int> byPcValue;
 	int toSlotTable = 0;
@@ -204,7 +204,7 @@ int main() {
 	if (toSlotTable == 0)
 		std::printf("  ни одной записи - таблицу слотов за этот прогон не трогали вовсе\n");
 
-	// Первые события по порядку: по ним видно, идёт ли выдача и возврат парой или только выдача.
+	// The first events in order: they show whether issue and return come as a pair or only issue.
 	std::printf("\n=== первые двадцать записей в таблицу слотов, по порядку ===\n");
 	int shown = 0;
 	for (const auto &e : events) {
@@ -213,22 +213,22 @@ int main() {
 		if (++shown >= 20) break;
 	}
 
-	// И соседние массивы того же окна - чтобы было видно, чем ещё занят обработчик.
+	// And the neighbouring arrays of the same window - to see what else the handler is busy with.
 	std::map<uint16_t, int> byArea;
 	for (const auto &e : events) byArea[uint16_t(e.addr & 0xFFC0)] += 1;
 	std::printf("\n=== куда ещё писали в этом окне ===\n");
 	for (const auto &kv : byArea)
 		std::printf("  0x%04X..0x%04X  %6d записей\n", kv.first, kv.first + 0x3F, kv.second);
 
-	// Счётчик ступени огибающей: eec0[voice], ОЗУ 0x2EC0 + voice. Дизассемблер (0x32AA,
-	// 0x3300-0x3308) говорит, что освобождение слота (0x34FA: stb #0x80, edc0[64]) происходит
-	// ТОЛЬКО когда этот счётчик доходит до 7 - `inc 80; cmpb 80,#07; je 32aa`. Если он
-	// застревает ниже семи, код освобождения в прошивке ЕСТЬ, но недостижим - слот виснет не
-	// потому, что заглушка не пишет 0x80, а потому, что она не даёт счётчику дойти до порога.
-	// Индекс в дизассемблере - регистр 64, а он всегда voice*2 (`shlb 64,#01`, тот же индекс,
-	// что у edc0[64]). Значит настоящий счётчик сидит только на ЧЁТНЫХ смещениях этого окна;
-	// нечётные - сосед по памяти, другой массив. Первая версия этого зонда зачерпнула оба и
-	// увидела значения вроде 250, которых у счётчика 0..7 быть не может.
+	// Envelope step counter: eec0[voice], RAM 0x2EC0 + voice. The disassembler (0x32AA,
+	// 0x3300-0x3308) says that freeing a slot (0x34FA: stb #0x80, edc0[64]) happens
+	// ONLY when this counter reaches 7 - `inc 80; cmpb 80,#07; je 32aa`. If it
+	// gets stuck below seven, the freeing code IS in the firmware but unreachable - the slot hangs not
+	// because the stub does not write 0x80, but because it does not let the counter reach the threshold.
+	// The index in the disassembler is register 64, and it is always voice*2 (`shlb 64,#01`, the same index
+	// as for edc0[64]). So the real counter sits only at EVEN offsets of this window;
+	// the odd ones are a memory neighbour, a different array. The first version of this probe scooped up both and
+	// saw values like 250, which a counter of 0..7 cannot have.
 	std::map<int, int> eec0Values;
 	for (const auto &e : events) {
 		if (e.addr < 0x2EC0 || e.addr > 0x2EFF) continue;

@@ -1,14 +1,14 @@
-// «Closed hat на десятом канале не звучит, может быть, и ещё что-то».
+// "Closed hat on channel ten does not sound, maybe something else too."
 //
-// Карта Rhythm Setup оказалась НИ ПРИ ЧЁМ: клавиша 42 (Closed Hi-Hat по GM) несёт тембр 64
-// и в текущей памяти прибора, и в заводском дампе D110-ALL.SYX (сверено побайтно) - то есть
-// назначение верное, а клавиши 24-34 пустые ЗАКОННО, это заводское состояние ритм-секции,
-// которая у D-110 начинается с ноты 35, а не поломка сброса.
+// The Rhythm Setup map turned out NOT to be the cause: key 42 (Closed Hi-Hat per GM) carries timbre 64
+// both in the unit's current memory and in the factory dump D110-ALL.SYX (compared byte by byte) - so
+// the assignment is right, and keys 24-34 are empty LEGITIMATELY, that is the factory state of the rhythm section,
+// which on the D-110 starts at note 35, not a broken reset.
 //
-// Значит вопрос не «что стоит в таблице», а «что происходит НИЖЕ, когда движок получает это
-// назначение». Зонд играет подряд все клавиши, у которых Rhythm Setup сейчас несёт РЕАЛЬНЫЙ
-// тембр (не OFF), и меряет пик каждой - список молчащих получается прямым измерением, а не
-// по одному подозреваемому.
+// So the question is not "what is in the table" but "what happens BELOW when the engine receives this
+// assignment". The probe plays in turn all keys whose Rhythm Setup currently carries a REAL
+// timbre (not OFF), and measures each one's peak - the list of silent ones comes from direct measurement, not
+// from a single suspect.
 #include "Source/PluginProcessor.h"
 
 #include <cmath>
@@ -19,7 +19,7 @@
 namespace {
 constexpr double kSampleRate = 44100.0;
 constexpr int kBlock = 512;
-constexpr int kRhythmChannel = 10; // канал 10, партия 8 у заводского прибора
+constexpr int kRhythmChannel = 10; // channel 10, part 8 on a factory unit
 
 void render(D110AudioProcessor &proc, double seconds, juce::MidiBuffer *midi = nullptr) {
 	juce::AudioBuffer<float> buffer(2, kBlock);
@@ -76,7 +76,7 @@ int main() {
 		const int note = D110Core::kRhythmFirstKey + keyIdx;
 		const int at = D110Core::kRamRhythmTemp + keyIdx * D110Core::kRhythmRecord;
 		const int tembr = ram[(size_t)at];
-		if (tembr == 127) continue; // OFF по карте - тут и не должно звучать
+		if (tembr == 127) continue; // OFF per the map - it should not sound here
 
 		const float peak = peakOf(proc, note);
 		const char *note_name = nullptr;

@@ -1,16 +1,16 @@
-# Патчи к MAME
+# Patches for MAME
 
-Плагин собирается против **неизменённого** дерева MAME - это его свойство, и оно остаётся
-верным для одного из патчей ниже, но не для остальных: `mame_mcs96_stale_irq_level.patch`
-**обязателен**, см. его собственный раздел. `mame_flopimg_missing_string_view_include.patch`
-тоже **обязателен**, но только при сборке под Windows на MSVC - см. его раздел.
-`mame_roland_d10_dropped_writes.patch` по-прежнему опционален - ничего из него не нужно для
-работы плагина. Здесь лежат правки, найденные по ходу работы над D-110 и относящиеся к самой
-MAME, а не к плагину. Хранятся они тут по простой причине: дерево MAME общее у нескольких
-проектов, не вендорится сюда и держит чужие незакоммиченные изменения, так что оставленная в
-нём правка легко теряется.
+The plugin builds against an **unmodified** MAME tree - that is a property of it, and it stays
+true for one of the patches below but not for the others: `mame_mcs96_stale_irq_level.patch`
+is **mandatory**, see its own section. `mame_flopimg_missing_string_view_include.patch`
+is also **mandatory**, but only when building on Windows with MSVC - see its section.
+`mame_roland_d10_dropped_writes.patch` is still optional - nothing in it is needed for the
+plugin to work. This directory holds fixes found while working on the D-110 that belong to MAME
+itself, not to the plugin. They are kept here for a simple reason: the MAME tree is shared by several
+projects, is not vendored here and holds other people's uncommitted changes, so a fix left in
+it is easily lost.
 
-Применять к дереву MAME 0.288:
+Apply to a MAME 0.288 tree:
 
 ```
 cd <mame-tree>
@@ -75,33 +75,33 @@ machine under the same plugin build within seconds of opening the editor.
 
 ## `mame_roland_d10_dropped_writes.patch` — optional
 
-Драйвер `roland_d10.cpp` молча теряет две группы записей, которые прошивка D-110 делает
-по-настоящему.
+The `roland_d10.cpp` driver silently drops two groups of writes that the D-110 firmware really
+makes.
 
-**Защёлка SO отвечает и по `0x0280`** - тот же адрес с точностью до A7, - а карта описывает
-только `0x0200`, поэтому эти записи проваливаются как неотображённые. Они не случайны:
-именно они поднимают R.SW (вывод на аналоговую плату) и выбирают программу микросхемы
-ревербератора. Прошивка делает их трижды при загрузке, из ПЗУ `0x1C94`, `0x1CC1` и `0x20FF`,
-со значениями `2C` и `0C`; по битовой раскладке, описанной в самом `so_w`, это «программа 2,
-R.SW включён», тогда как обе записи по `0x0200` - нули.
+**The SO latch also answers at `0x0280`** - the same address up to A7 - while the map
+describes only `0x0200`, so these writes fall through as unmapped. They are not accidental:
+they are what raises R.SW (output to the analog board) and selects the reverb chip's program.
+The firmware makes them three times at boot, from ROM `0x1C94`, `0x1CC1` and `0x20FF`,
+with the values `2C` and `0C`; by the bit layout described in `so_w` itself, that is "program 2,
+R.SW on", whereas both writes to `0x0200` are zeros.
 
-**Записи по `0x021A` объявлены `nopw()`** и выбрасываются. Между тем прошивка кладёт туда
-биты 1-3 типа ревербератора: развёртка всех восьми типов плюс OFF даёт `00 02 02 04 04 06 06
-08`, то есть `тип & 0x0E`. Младший бит типа уходит отдельно - в бит 2 внешней защёлки
-`0x0800`. Тот же байт пишет и опрос панели, меняя в нём только бит 0.
+**Writes to `0x021A` are declared `nopw()`** and thrown away. Meanwhile the firmware puts
+bits 1-3 of the reverb type there: sweeping all eight types plus OFF gives `00 02 02 04 04 06 06
+08`, i.e. `type & 0x0E`. The low bit of the type goes separately - into bit 2 of the external latch
+`0x0800`. The same byte is also written by the panel scan, changing only bit 0 in it.
 
-Проверено измерением, с контролем: при тех же нажатиях и той же ноте, но без смены типа, по
-обоим адресам **ни одной записи**. Подробности и разбор подпрограммы ПЗУ `0x4C7B`-`0x4CC5` -
-в [`../docs/service_notes_findings.md`](../docs/service_notes_findings.md).
+Verified by measurement, with a control: with the same presses and the same note, but without changing the type, there is
+**not a single write** to either address. Details and a walkthrough of the ROM routine `0x4C7B`-`0x4CC5` are
+in [`../docs/service_notes_findings.md`](../docs/service_notes_findings.md).
 
-Поведения патч не меняет: `so_w` в MAME и сейчас только логирует, а новый обработчик просто
-принимает байт - потреблять эти биты пока нечему, микросхему ревербератора не эмулирует
-никто. Смысл в том, что драйвер перестаёт терять данные и в коде записано, что они значат.
-Проверено после применения: прибор загружается, все восемь типов дают те же значения, что и
-до патча, демо-песня играет 75 секунд с живой панелью на 100% реального времени.
+The patch does not change behaviour: `so_w` in MAME still only logs, and the new handler just
+accepts the byte - there is nothing to consume these bits yet, nobody emulates the reverb chip.
+The point is that the driver stops losing data and the code records what it means.
+Verified after applying: the unit boots, all eight types give the same values as
+before the patch, the demo song plays for 75 seconds with a live panel at 100% of real time.
 
-**Оговорка, которая должна ехать вместе с патчем:** зеркало `0x0280` выведено из того, что
-значения осмысленно раскладываются по битам `so_w`, а не из схемы - декодирование адресов
-сидит внутри вентильной матрицы IC16 и на принципиальной схеме не видно. Что бит 0 в
-`0x021A` - это строб столбца панели, тоже согласуется с измерением, но отдельно не
-доказывалось.
+**A caveat that must travel with the patch:** the `0x0280` mirror is inferred from the fact that the
+values decompose meaningfully by the bits of `so_w`, not from the schematic - the address decoding
+sits inside the gate array IC16 and is not visible on the schematic. That bit 0 in
+`0x021A` is the panel column strobe is also consistent with measurement, but was not
+proven separately.

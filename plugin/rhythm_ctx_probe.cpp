@@ -1,14 +1,14 @@
-// closed_hat (клавиша 42, тембр 64) звучит в 10-50 раз тише соседей, и рядом с ней в логе
-// движка появляется предупреждение "Attempted to play invalid key 1 (velocity 121)" -
-// которого больше нигде за весь прогон нет. Совпадение скорости (121 = 0.95*127, ровно то,
-// что шлёт наш собственный зонд) говорит, что это НАШ мост породил лишнее событие, а не
-// munt сама по себе.
+// closed_hat (key 42, timbre 64) sounds 10-50 times quieter than its neighbours, and next to it in the
+// engine log the warning "Attempted to play invalid key 1 (velocity 121)" appears -
+// which is nowhere else in the whole run. The velocity match (121 = 0.95*127, exactly what
+// our own probe sends) says that OUR bridge produced the extra event, not
+// munt by itself.
 //
-// mt32emu::RhythmPart::noteOn получает ev.note напрямую из D110Core::popNoteEvent(), а тот -
-// из m_ctxNote[ctx], которое прошивка сама пишет в f400[] (rams 0x3400+ctx). Если "1" туда
-// действительно попадает - это пишет прошивка, и вопрос "почему" переносится на её сторону;
-// если нет - подмена происходит в НАШЕМ мосте. Единственный способ разделить эти два случая -
-// прослушать саму запись, точно как la32_ctx_probe.cpp делает для мелодических партий.
+// mt32emu::RhythmPart::noteOn gets ev.note directly from D110Core::popNoteEvent(), and that from
+// m_ctxNote[ctx], which the firmware itself writes into f400[] (rams 0x3400+ctx). If "1" really
+// lands there - the firmware writes it, and the question "why" moves to its side;
+// if not - the substitution happens in OUR bridge. The only way to separate these two cases is
+// to listen to the write itself, exactly as la32_ctx_probe.cpp does for melodic parts.
 #include "Source/PluginProcessor.h"
 
 #include <cstdio>
@@ -39,12 +39,12 @@ Decoded decode(uint16_t addr) {
 	if (addr >= 0x2E80 && addr < 0x2EC0) return {"ee80", (addr - 0x2E80) / 2};
 	if (addr >= 0x2EC0 && addr < 0x2F00) return {"eec0", (addr - 0x2EC0) / 2};
 	if (addr >= 0x2F80 && addr < 0x2FC0) return {"ef80", (addr - 0x2F80) / 2};
-	if (addr >= 0x33A0 && addr < 0x33C0) return {"f3a0", addr - 0x33A0}; // часть (part*16)
+	if (addr >= 0x33A0 && addr < 0x33C0) return {"f3a0", addr - 0x33A0}; // part (part*16)
 	if (addr >= 0x33C0 && addr < 0x33E0) return {"f3c0", addr - 0x33C0};
-	if (addr >= 0x3400 && addr < 0x3420) return {"f400", addr - 0x3400}; // нота
-	if (addr >= 0x3420 && addr < 0x3440) return {"f420", addr - 0x3420}; // скорость
+	if (addr >= 0x3400 && addr < 0x3420) return {"f400", addr - 0x3400}; // note
+	if (addr >= 0x3420 && addr < 0x3440) return {"f420", addr - 0x3420}; // velocity
 	if (addr >= 0x3440 && addr < 0x3460) return {"f440", addr - 0x3440};
-	if (addr >= 0x3460 && addr < 0x3480) return {"f460", addr - 0x3460}; // освобождение
+	if (addr >= 0x3460 && addr < 0x3480) return {"f460", addr - 0x3460}; // release
 	if (addr >= 0x3480 && addr < 0x34a0) return {"f480", addr - 0x3480};
 	return {"?", -1};
 }
@@ -65,9 +65,9 @@ int main() {
 		return 1;
 	}
 	proc.setForwardNotesToFirmware(true);
-	proc.getCore().takeCtxEvents(); // сбросить шум загрузки
+	proc.getCore().takeCtxEvents(); // clear the load noise
 
-	for (int note : {42, 46, 90, 35}) { // хай-хэты + один заведомо звучащий (kick) для контроля
+	for (int note : {42, 46, 90, 35}) { // hi-hats + one certainly sounding (kick) for control
 		proc.getCore().takeCtxEvents();
 		juce::MidiBuffer on;
 		on.addEvent(juce::MidiMessage::noteOn(kRhythmChannel, note, 0.95f), 0);

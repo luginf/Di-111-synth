@@ -91,8 +91,8 @@ struct Result {
 	double rms = 0;
 	int notes = 0;
 	std::string song;
-	// Полнота измерения печатается вместе с ним: журнал нот умеет заполниться, а кольцо
-	// зеркала - переполниться, и тогда цифры слева это нижние границы, а не результат.
+	// The completeness of the measurement is printed along with it: the note log can fill up, and the mirror
+	// ring can overflow, and then the figures on the left are lower bounds, not a result.
 	uint64_t noteDrops = 0, sysexDrops = 0;
 };
 
@@ -103,10 +103,10 @@ Result runSolo(int solo, double seconds) {
 	D110AudioProcessor proc;
 	proc.prepareToPlay(kSampleRate, kBlock);
 	proc.setPoweredOn(true);
-	// Загрузку СЧИТАЕМ, а не спим. Мост копит по сообщению DT1 на каждый зеркалируемый
-	// регион, который меняется при старте прошивки, а разбирает кольцо только
-	// processBlock: проспать загрузку - значит начать измерение с непримененной очередью
-	// параметров, то есть измерить не то состояние, которое показывает панель.
+	// Loading is COUNTED, not slept. The bridge accumulates one DT1 message for each mirrored
+	// region that changes at firmware start, and only processBlock drains the ring:
+	// sleeping through the load means starting the measurement with an unapplied parameter queue,
+	// i.e. measuring not the state the panel shows.
 	{
 		juce::AudioBuffer<float> warm(2, kBlock);
 		const auto begin = Clock::now();
@@ -120,14 +120,14 @@ Result runSolo(int solo, double seconds) {
 		}
 	}
 
-	// Соло ставится ДО пуска демо, а счётчики обнуляются ДО первой ноты: иначе в цифры
-	// попадёт то, чем прошивка занималась на загрузке, и разница между партиями окажется
-	// разницей между их стартовыми хлопотами.
+	// Solo is set BEFORE the demo starts, and the counters are zeroed BEFORE the first note: otherwise the figures
+	// would include what the firmware was busy with at boot, and the difference between parts would turn out to be
+	// the difference between their start-up chores.
 	proc.getCore().setSoloPart(solo);
 	proc.getCore().resetTallies();
-	// Пуск демо с панели, как на приборе: Edit+Enter вместе, потом Enter отдельно -
-	// подтверждение. Обе паузы по 200/500 мс не запас на всякий случай: прошивка опрашивает
-	// панель своим сроком, и нажатие короче обхода она просто не заметит.
+	// Starting the demo from the panel, as on the unit: Edit+Enter together, then Enter separately -
+	// confirmation. Both pauses of 200/500 ms are not a safety margin for its own sake: the firmware polls the
+	// panel on its own schedule, and a press shorter than a scan pass it simply will not notice.
 	press(proc, {D110Core::buttonIndex(1, 7), D110Core::buttonIndex(1, 0)}, 200, 500);
 	press(proc, {D110Core::buttonIndex(1, 0)}, 200, 500);
 	proc.getCore().startNoteLog();
@@ -156,7 +156,7 @@ Result runSolo(int solo, double seconds) {
 	r.song = lcdLine2(proc);
 	r.noteDrops = proc.getCore().noteLogDropped_();
 	r.sysexDrops = proc.getCore().sysexDropped();
-	// Считаем по счётчику без потерь, а не по журналу: журнал может обрезаться, счётчик нет.
+	// Counted by the lossless counter, not the log: the log can be truncated, the counter cannot.
 	if (solo < 0) {
 		for (int p = 0; p < 9; ++p) r.notes += int(proc.getCore().noteOnsForPart(p));
 	} else {

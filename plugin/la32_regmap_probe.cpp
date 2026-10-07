@@ -1,34 +1,33 @@
-// Карта регистров LA32 - какая ячейка что означает, снятая с того, что пишет туда прошивка.
+// LA32 register map - which cell means what, derived from what the firmware writes there.
 //
-// Такой карты нет нигде: MB87136APF не эмулирует никто. Сервисные заметки дают только выводы
-// (docs/service_notes_findings.md): девять адресных линий A0-A8, то есть 512 регистров,
-// восьмибитная шина данных, вход WR, выход прерывания. Окно 0x0C00-0x0DFF имеет ровно такой
-// размер, значит это и есть весь управляющий интерфейс синтеза.
+// No such map exists anywhere: nobody emulates the MB87136APF. The service notes only give
+// conclusions (docs/service_notes_findings.md): nine address lines A0-A8, i.e. 512 registers,
+// an eight-bit data bus, a WR input, an interrupt output. The 0x0C00-0x0DFF window is exactly
+// that size, so it is the whole synthesis control interface.
 //
-// Прочитать регистр нельзя, только записать. Поэтому значение выясняется тем, что его
-// заставляют измениться: четыре раздражителя, каждый отличается от основного ровно ОДНИМ
-// свойством.
+// A register cannot be read, only written. So the meaning is found by making it change:
+// four stimuli, each differing from the base one in exactly ONE property.
 //
-//   A  нота 60, громкость 100, тембр как есть   - основа
-//   B  нота 72                                   - разница с A = высота
-//   C  громкость 40                              - разница с A = сила нажатия
-//   D  другой тембр                              - разница с A = тембр
+//   A  note 60, volume 100, timbre as is         - base
+//   B  note 72                                   - difference from A = pitch
+//   C  volume 40                                 - difference from A = key velocity
+//   D  a different timbre                        - difference from A = timbre
 //
-// ЧТО СЧИТАТЬ ЕДИНИЦЕЙ. Первая редакция этого зонда сравнивала прогоны по абсолютному
-// адресу и объявила половину окна «высотой», а половину «громкостью» - артефакт целиком:
-// каждая нота получает свои голосовые слоты, и ячейка выглядит изменившейся просто оттого,
-// что в другом прогоне её не трогали.
+// WHAT TO TREAT AS A UNIT. The first revision of this probe compared runs by absolute
+// address and declared half the window "pitch" and half "volume" - a pure artifact:
+// each note gets its own voice slots, and a cell looks changed simply because the other run
+// did not touch it.
 //
-// Вторая редакция приводила адрес к «наименьшему использованному смещению в банке», и на
-// банке огибающих 0x0CC0 это тоже соврало: он продолжает обслуживать УЖЕ ОТПУЩЕННЫЙ голос
-// предыдущей ноты, так что минимум принадлежал не той ноте.
+// The second revision reduced the address to the "smallest used offset in the bank", and on
+// the 0x0CC0 envelope bank that lied too: it keeps serving the ALREADY RELEASED voice of the
+// previous note, so the minimum belonged to the wrong note.
 //
-// Здесь слот не угадывается вовсе. Прошивка ведёт таблицу состояний слотов (rams 0x2DC0 + 2n,
-// см. D110Core::kSlotStateTable): свободный слот держит 0x80. Снимок этой таблицы до и после
-// ноты прямо называет слоты, которые ей выделили. Банк идёт через 0x40 = 64 байта на 32
-// слота, то есть **два байта на слот**, а нота занимает четыре, потому что берёт два
-// партиала - это согласуется с прежним измерением, где на одну ноту ровно два слота
-// переходили из 0x80 в 0x40.
+// Here the slot is not guessed at all. The firmware keeps a slot state table (RAM 0x2DC0 + 2n,
+// see D110Core::kSlotStateTable): a free slot holds 0x80. A snapshot of this table before and
+// after a note directly names the slots allocated to it. The bank spans 0x40 = 64 bytes for 32
+// slots, i.e. **two bytes per slot**, and a note takes four because it uses two partials -
+// consistent with the earlier measurement where exactly two slots per note went from 0x80
+// to 0x40.
 #include "Source/PluginProcessor.h"
 
 #include <algorithm>
@@ -88,13 +87,13 @@ std::vector<uint8_t> ramOf(D110AudioProcessor &proc) {
 
 struct Capture {
 	std::vector<D110Core::SoWrite> writes;
-	std::vector<int> slots;        // слоты этой ноты, взятые из её же записей
-	std::vector<int> slotsByTable; // они же по таблице состояний - только для сверки
+	std::vector<int> slots;        // slots of this note, taken from its own writes
+	std::vector<int> slotsByTable; // the same by the state table - for cross-checking only
 	std::map<uint16_t, std::vector<uint8_t>> byAddr;
 	uint64_t dropped = 0;
 };
 
-// (банк, номер партиала внутри ноты, байт внутри слота) -> значения
+// (bank, partial number within the note, byte within the slot) -> values
 using Key = std::tuple<uint16_t, int, int>;
 
 std::map<Key, std::vector<uint8_t>> normalise(const Capture &c) {
@@ -104,8 +103,8 @@ std::map<Key, std::vector<uint8_t>> normalise(const Capture &c) {
 		const int within = addr & 0x3F;
 		const int slot = within / kBytesPerSlot;
 		const int byteInSlot = within % kBytesPerSlot;
-		// Записи в слоты, этой ноте не принадлежащие, отбрасываются: банк огибающих
-		// параллельно доигрывает предыдущую ноту, и без этого он всё портит.
+		// Writes to slots that do not belong to this note are dropped: the envelope bank keeps
+		// playing out the previous note in parallel, and without this it spoils everything.
 		const auto it = std::find(c.slots.begin(), c.slots.end(), slot);
 		if (it == c.slots.end()) continue;
 		out[{bank, int(it - c.slots.begin()), byteInSlot}] = vals;
@@ -116,12 +115,12 @@ std::map<Key, std::vector<uint8_t>> normalise(const Capture &c) {
 Capture window(D110AudioProcessor &proc, int note, int velocity, double seconds) {
 	const auto before = ramOf(proc);
 	proc.getCore().startSoTrace();
-	const uint8_t on[3] = {0x91, uint8_t(note), uint8_t(velocity)}; // канал 2 = партия 1
+	const uint8_t on[3] = {0x91, uint8_t(note), uint8_t(velocity)}; // channel 2 = part 1
 	proc.getCore().pushMidi(on, 3);
 	render(proc, seconds);
 
-	// Снимок таблицы состояний СНЯТ, пока нота ещё звучит: после снятия слоты
-	// освобождаются и назвать их было бы уже нечем.
+	// The state table snapshot is TAKEN while the note is still sounding: after release the
+	// slots are freed and there would be nothing left to name them by.
 	const auto during = ramOf(proc);
 
 	const uint8_t off[3] = {0x81, uint8_t(note), 0};
@@ -134,22 +133,22 @@ Capture window(D110AudioProcessor &proc, int note, int velocity, double seconds)
 	c.writes = proc.getCore().takeSoWrites();
 	for (const auto &w : c.writes) c.byAddr[w.addr].push_back(w.value);
 
-	// Слоты берутся ИЗ САМИХ ЗАПИСЕЙ, по банку 0x0C00. Он пишется только при выдаче голоса,
-	// в отличие от банка огибающих 0x0CC0, который параллельно доигрывает прежние ноты, -
-	// значит слоты, затронутые в нём за это окно, и есть слоты этой ноты.
+	// Slots are taken FROM THE WRITES THEMSELVES, by bank 0x0C00. It is written only when a
+	// voice is issued, unlike the envelope bank 0x0CC0, which keeps playing out earlier notes in
+	// parallel - so the slots touched in it during this window are the slots of this note.
 	//
-	// Прежний признак - «запись в таблице состояний ушла от 0x80» - работал только для
-	// слотов, ни разу не использованных, потому что прошивка НИКОГДА не возвращает слот в
-	// 0x80: цикл освобождения по ПЗУ 0x29BB таблицу edc0 не трогает (la32_interface.md).
-	// Свободных слотов всего 32, четыре раздражителя занимали шестнадцать, и хроматика
-	// умирала после четвёртой ноты. Ждать дольше не помогало и помочь не могло.
+	// The earlier criterion - "a state table entry moved away from 0x80" - worked only for slots
+	// never used before, because the firmware NEVER returns a slot to 0x80: the ROM release loop
+	// at 0x29BB does not touch the edc0 table (la32_interface.md). There are only 32 free slots,
+	// the four stimuli took sixteen, and the chromatic run died after the fourth note. Waiting
+	// longer did not help and could not.
 	for (const auto &[addr, vals] : c.byAddr)
 		if ((addr & 0xFFC0) == D110Core::kLa32TapBase)
 			c.slots.push_back((addr & 0x3F) / kBytesPerSlot);
 	c.slots.erase(std::unique(c.slots.begin(), c.slots.end()), c.slots.end());
 
-	// Таблица состояний остаётся как сверка: пока слоты ещё не кончились, оба способа
-	// обязаны называть одно и то же, и расхождение сразу видно.
+	// The state table stays as a cross-check: while slots have not run out, both methods must
+	// name the same thing, and a divergence is immediately visible.
 	for (int s = 0; s < D110Core::kNumHardwareVoices; ++s) {
 		const int off2 = D110Core::kSlotStateTable + 2 * s;
 		if (before[(size_t)off2] == D110Core::kSlotIdleValue &&
@@ -173,19 +172,19 @@ std::string show(const std::map<Key, std::vector<uint8_t>> &m, const Key &k, int
 	return s;
 }
 
-// Как регистр движется НА ПОЛУТОН.
+// How a register moves PER SEMITONE.
 //
-// Сравнение потоков целиком объявило банк 0x0CC0 зависящим «от всего», и это артефакт
-// длины: у прогонов разное число обновлений, поэтому векторы не равны, даже когда их
-// НАЧАЛА совпадают поэлементно. А начала совпадают. Множеством значений такой вопрос не
-// решается - нужен закон, и его даёт ряд подряд идущих нот.
+// Comparing whole streams declared bank 0x0CC0 dependent "on everything", and that is an
+// artifact of length: runs have different numbers of updates, so the vectors differ even when
+// their BEGINNINGS match element by element. And the beginnings do match. A set of values
+// cannot settle such a question - a law is needed, and a series of consecutive notes gives it.
 //
-// Снимается ПЕРВОЙ, до всех прочих опытов, и это не порядок изложения, а необходимость:
-// слот опознаётся по тому, что прошивка его выдала, а выдаёт она сначала ни разу не
-// использованные. Их 32, и каждая нота занимает два-четыре. Если снимать хроматику после
-// четырёх раздражителей, свободные кончаются на четвёртой ноте - так и было три прогона
-// подряд, причём ни пауза между нотами, ни фильтр по адресу подпрограммы не помогали,
-// потому что дело не в них.
+// Taken FIRST, before all other experiments, and that is not presentation order but a
+// necessity: a slot is recognized by what the firmware issued, and it issues the never-used
+// ones first. There are 32 of them, and each note takes two to four. If the chromatic run is
+// taken after the four stimuli, the free ones run out at the fourth note - this happened three
+// runs in a row, and neither a pause between notes nor a filter on the routine address helped,
+// because they were not the cause.
 void chromaticSweep(D110AudioProcessor &proc) {
 	std::printf("\n=== хроматика: первое значение каждого регистра, ноты 60..72 ===\n");
 
@@ -241,10 +240,10 @@ void chromaticSweep(D110AudioProcessor &proc) {
 
 } // namespace
 
-// Режимы. Опыт за запуск ровно один, и это вынужденно: прошивка выдаёт сначала ни разу не
-// использованные слоты, их всего 32, и как только они кончаются, в тот же банк начинают идти
-// обнуления при переиспользовании - неотличимые здесь от выдачи. Два опыта в одном прогоне
-// не помещаются, и попытка их совместить трижды портила измерение.
+// Modes. Exactly one experiment per launch, and that is forced: the firmware issues the
+// never-used slots first, there are only 32 of them, and once they run out, resets on reuse
+// start going into the same bank - indistinguishable here from issuing. Two experiments do
+// not fit in one run, and trying to combine them spoiled the measurement three times.
 enum class Mode { Sweep, Tone, Find, Grid };
 
 int main(int argc, char **argv) {
@@ -268,12 +267,12 @@ int main(int argc, char **argv) {
 	std::printf("прошивка: %s\n", proc.getCore().isRunning() ? "работает" : "НЕТ");
 	if (!proc.getCore().isRunning()) return 1;
 
-	// Захват сужается на окно LA32: по 0x021A параллельно идёт опрос панели тысячами
-	// записей в секунду, и без фильтра кольцо забилось бы им одним.
+	// The capture is narrowed to the LA32 window: at 0x021A the panel polling runs in parallel,
+	// thousands of writes per second, and without the filter the ring would be filled by it alone.
 	proc.getCore().setTraceFilter(D110Core::kLa32TapBase, D110Core::kLa32TapEnd);
 
-	// Окно короткое намеренно: пока нота держится, банк 0x0CC0 обновляется без остановки, и
-	// на двух секундах кольцо переполнялось, теряя тысячи записей.
+	// The window is short on purpose: while the note is held, bank 0x0CC0 is updated without
+	// stopping, and at two seconds the ring overflowed, losing thousands of writes.
 	constexpr double kWindow = 0.5;
 
 	std::printf("\n=== КОНТРОЛЬ: окно %.1f с БЕЗ ноты ===\n", kWindow);
@@ -287,28 +286,28 @@ int main(int argc, char **argv) {
 			std::printf("  !!! окно не молчит - всё ниже надо читать с поправкой на это\n");
 	}
 
-	// ---- разведка страниц правки тембра -------------------------------------------------
-	// Ищет, чем вообще доходят до параметров ПАРТИАЛОВ. Ничего о назначении кнопок не
-	// предполагает: жмёт значение и смотрит, какой байт тембра сдвинулся. Байт называет
-	// параметр сам. Тембр D-110 - это 10 байт имени, ещё четыре байта общей части (две
-	// структуры, приглушение партиалов, режим огибающей), а с байта 14 идут собственно
-	// четыре партиала по 58 байт.
+	// ---- survey of timbre edit pages ---------------------------------------------------
+	// Looks for how PARTIAL parameters are reached at all. Assumes nothing about what the buttons
+	// are for: presses a value and watches which timbre byte moved. The byte names the parameter
+	// itself. A D-110 timbre is a 10-byte name, four more bytes of common part (two structures,
+	// partial muting, envelope mode), and from byte 14 on come the four partials proper, 58
+	// bytes each.
 	//
-	// Нот здесь НЕ играется, и это важно: разведка не тратит голосовые слоты, поэтому всю
-	// сетку можно перебрать за один прогон, тогда как измерение регистров упирается в 32
-	// слота и требует опыта за запуск.
-	// ---- вся сетка параметров партиала: Group+ выбирает ГРУППУ, Bank+ параметр в ней ------
-	// Прежняя разведка ходила только по Group+ и нашла смещения +0, +8, +20, +23, +28, +41,
-	// +47. Это не «семь параметров партиала», как было записано, а ПЕРВЫЕ параметры семи
-	// групп: сверка с раскладкой тембра (munt, Structures.h) даёт WG, P-ENV, P-LFO, TVF,
-	// TVF-ENV, TVA, TVA-ENV - и ровно эти имена лежат строками в ПЗУ прошивки. Значит из
-	// тридцати параметров партиала измерены были семь, а форма волны, ширина импульса, номер
-	// волны ПЗУ и резонанс - те, которым до микросхемы дойти ОБЯЗАНО, потому что генерирует
-	// волну она сама, - не проверялись ни разу.
+	// No notes are played here, and that matters: the survey does not spend voice slots, so the
+	// whole grid can be stepped through in one run, whereas register measurement runs into the 32
+	// slots and requires one experiment per launch.
+	// ---- whole partial parameter grid: Group+ selects the GROUP, Bank+ the parameter in it ------
+	// The earlier survey only walked Group+ and found offsets +0, +8, +20, +23, +28, +41,
+	// +47. These are not "seven partial parameters", as was recorded, but the FIRST parameters of
+	// seven groups: checking against the timbre layout (munt, Structures.h) gives WG, P-ENV,
+	// P-LFO, TVF, TVF-ENV, TVA, TVA-ENV - and exactly these names are stored as strings in the
+	// firmware ROM. So of the thirty partial parameters seven had been measured, while waveform,
+	// pulse width, ROM wave number and resonance - the ones that MUST reach the chip, since it
+	// generates the wave itself - had never been checked.
 	//
-	// Нот здесь не играется, поэтому голосовые слоты не тратятся и вся сетка снимается за
-	// один прогон. Внутри группы страница не перенабирается заново: Bank+ переводит на
-	// следующий параметр, и каждая клетка сравнивается со своим снимком.
+	// No notes are played here, so voice slots are not spent and the whole grid is captured in
+	// one run. Within a group the page is not re-entered: Bank+ moves to the next parameter, and
+	// each cell is compared with its own snapshot.
 	if (mode == Mode::Grid) {
 		std::printf("заводской сброс, чтобы отсчёт был от известного тембра...\n");
 		proc.getCore().factoryReset();
@@ -316,7 +315,7 @@ int main(int argc, char **argv) {
 		while (proc.getCore().isResetting() || !proc.getCore().isRunning()) render(proc, 0.5);
 		render(proc, 9.0);
 
-		constexpr int kPartialBase = 14; // партиал 1; базы отстоят на 58, это уже измерено
+		constexpr int kPartialBase = 14; // partial 1; bases are 58 apart, already measured
 		std::printf("\n  группа | Bank+ | байт тембра | смещение в партиале | значение\n");
 		for (int group = 0; group <= 6; ++group) {
 			press(proc, "Exit", 2);
@@ -335,8 +334,8 @@ int main(int argc, char **argv) {
 				bool moved = std::memcmp(&before[0x21E4], &after[0x21E4], 246) != 0;
 				const char *dir = "+3";
 				if (!moved) {
-					// Значение могло стоять на верхнем упоре - тогда «не сдвинулось» значит
-					// «прибавлять некуда», а не «параметра нет». Пробуем в другую сторону.
+					// The value may have been at the upper stop - then "did not move" means
+					// "nothing to add", not "no such parameter". Try the other direction.
 					press(proc, "Number-", 3);
 					render(proc, 0.4);
 					after = ramOf(proc);
@@ -378,10 +377,9 @@ int main(int argc, char **argv) {
 				press(proc, "Number+", 3);
 				render(proc, 0.5);
 				auto after = ramOf(proc);
-				// Значение могло стоять на верхнем упоре - и тогда «ничего не сдвинулось»
-				// означало бы не «страница пустая», а «прибавлять некуда». Память прошивки
-				// живёт между прогонами, а прошлые прогоны как раз прибавляли, так что к
-				// этому моменту упор - обычное дело. Пробуем в другую сторону.
+				// The value may have been at the upper stop - and then "nothing moved" would mean not
+				// "the page is empty" but "nothing to add". The firmware memory lives between runs, and
+				// earlier runs did add, so by now a stop is commonplace. Try the other direction.
 				bool moved = std::memcmp(&before[0x21E4], &after[0x21E4], 246) != 0;
 				const char *dir = "+";
 				if (!moved) {
@@ -410,28 +408,28 @@ int main(int argc, char **argv) {
 		return 0;
 	}
 
-	// ---- режим точечных правок тембра --------------------------------------------------
-	// Раздражитель «другой тембр» слишком груб: он двигает девять регистров разом и не
-	// говорит, который из них за что. Здесь тембр НЕ меняется - меняется по одному
-	// параметру внутри него, и сравнивается с замером, снятым той же нотой прямо перед
-	// правкой. Дорога в правку тембра снята раньше (plugin/audio_test.cpp): Exit, Exit ->
-	// Timbre -> Edit открывает параметры партии на странице «Tone =», ещё одно Edit
-	// проваливается в правку самого тембра, Group+ листает её страницы.
+	// ---- single timbre edit mode ---------------------------------------------------------
+	// The "different timbre" stimulus is too coarse: it moves nine registers at once and does
+	// not say which is for what. Here the timbre is NOT changed - one parameter inside it is
+	// changed at a time, and compared with a measurement taken by the same note right before
+	// the edit. The way into timbre editing was found earlier (plugin/audio_test.cpp): Exit, Exit ->
+	// Timbre -> Edit opens the part parameters on the "Tone =" page, one more Edit drops into
+	// editing the timbre itself, Group+ pages through it.
 	if (mode == Mode::Tone) {
-		// Страницы задаются аргументами: за прогон их помещается три-четыре. На страницу
-		// уходит два замера, на замер четыре слота при тембре из четырёх партиалов, а
-		// слотов 32 - дальше начинается переиспользование, и мерить нечем.
-		// Внутри правки тембра ПАРТИАЛ выбирает Part+, а Group+ листает параметры внутри
-		// него; снято разведкой (режим find, таблица в docs/la32_register_map.md). Bank+ не
-		// подходит - он водит курсор по имени тембра, что стоило одного прогона, потраченного
-		// на чужое допущение вместо измерения.
+		// Pages are given as arguments: three or four fit in a run. A page costs two measurements,
+		// a measurement costs four slots with a four-partial timbre, and there are 32 slots - after
+		// that reuse begins, and there is nothing to measure with.
+		// Inside timbre editing the PARTIAL is selected by Part+, and Group+ pages through the
+		// parameters inside it; found by the survey (find mode, table in docs/la32_register_map.md).
+		// Bank+ does not fit - it moves the cursor along the timbre name, which cost one run spent
+		// on someone else's assumption instead of a measurement.
 		//
-		// Part+ 0 оставляет общую часть тембра: имя и две структуры.
-		// Адрес правки: партиал (Part+), группа (Group+) и параметр внутри группы (Bank+).
-		// Bank+ появился здесь после того, как режим grid показал: Group+ приводит на ПЕРВЫЙ
-		// параметр группы, а не перебирает параметры. Без него форма волны, номер волны ПЗУ,
-		// ширина импульса и резонанс были недостижимы, а это ровно те параметры, которым до
-		// микросхемы дойти обязано.
+		// Part+ 0 leaves the common part of the timbre: the name and two structures.
+		// Edit address: partial (Part+), group (Group+) and parameter within the group (Bank+).
+		// Bank+ appeared here after grid mode showed that Group+ leads to the FIRST parameter of
+		// a group and does not step through parameters. Without it waveform, ROM wave number,
+		// pulse width and resonance were unreachable, and these are exactly the parameters that
+		// must reach the chip.
 		const int partSteps = (argc > 2) ? std::atoi(argv[2]) : 0;
 		const int groupSteps = (argc > 3) ? std::atoi(argv[3]) : 0;
 		const int firstBank = (argc > 4) ? std::atoi(argv[4]) : 0;
@@ -440,12 +438,12 @@ int main(int argc, char **argv) {
 		std::printf("партиал: Part+ x%d; группа: Group+ x%d; параметры: Bank+ с %d, числом %d;"
 		            " шаг значения %d\n", partSteps, groupSteps, firstBank, bankCount, presses);
 
-		// Заводской сброс ОБЯЗАТЕЛЕН, и это выяснилось дорогой ценой. Тембр живёт в памяти
-		// прошивки между прогонами, а прогонов с Number+ было много: структуры доехали до
-		// упоров, партиалы включались и выключались, и тембр оказался в состоянии, которого
-		// никто не выбирал. В таком прогоне «регистр не сдвинулся» не значит ничего - может,
-		// параметр и вправду не доходит до микросхемы, а может, правится партиал, который в
-		// текущей структуре не участвует. Различить нельзя, если не известна точка отсчёта.
+		// A factory reset is MANDATORY, and this was learned the hard way. The timbre lives in
+		// firmware memory between runs, and there were many runs with Number+: structures went to
+		// their stops, partials were switched on and off, and the timbre ended up in a state nobody
+		// chose. In such a run "the register did not move" means nothing - maybe the parameter
+		// really does not reach the chip, or maybe a partial is being edited that takes no part in
+		// the current structure. They cannot be told apart if the starting point is unknown.
 		std::printf("заводской сброс, чтобы тембр был известным...\n");
 		proc.getCore().factoryReset();
 		render(proc, 3.0);
@@ -458,8 +456,8 @@ int main(int argc, char **argv) {
 		}
 
 		struct Point { std::string name; int bankSteps; int presses; };
-		// Что именно на каждой странице - зонд не предполагает: он показывает, какие байты
-		// тембра в ОЗУ сдвинулись, и байт называет параметр сам.
+		// What exactly is on each page the probe does not assume: it shows which timbre bytes in
+		// RAM moved, and the byte names the parameter itself.
 		std::vector<Point> points;
 		for (int p = 0; p < bankCount; ++p)
 			points.push_back({"группа " + std::to_string(groupSteps) + ", параметр "
@@ -483,8 +481,8 @@ int main(int argc, char **argv) {
 			const Capture moved = window(proc, 60, 100, kWindow);
 
 			std::printf("\n=== %s ===\n", pt.name.c_str());
-			// Какие байты САМОГО тембра сдвинулись - это и есть подпись правки. Тембр
-			// партии 1 лежит в ОЗУ по 0x21E4, длиной 246 байт.
+			// Which bytes of the TIMBRE itself moved - that is the signature of the edit. The timbre of
+			// part 1 lies in RAM at 0x21E4, 246 bytes long.
 			std::printf("  сдвинулось в тембре (ОЗУ 0x21E4+):");
 			int moves = 0;
 			for (int i = 0; i < 246; ++i)
@@ -511,10 +509,10 @@ int main(int argc, char **argv) {
 				for (const auto &[k, v] : *m) keys.insert(k);
 			std::printf("  регистры, сдвинувшиеся ОТ ЭТОЙ правки:\n");
 			int changed = 0;
-			// Сравниваются только ПЕРВЫЕ значения, а не векторы целиком. Банк огибающих
-			// обновляется, пока нота звучит, и число обновлений от прогона к прогону
-			// разное - сравнение целиком объявляет его изменившимся всегда, даже когда
-			// начала совпадают байт в байт. На эту ловушку здесь уже попадались дважды.
+			// Only the FIRST values are compared, not whole vectors. The envelope bank is updated while
+			// the note sounds, and the number of updates differs from run to run - comparing whole
+			// vectors declares it changed always, even when the beginnings match byte for byte. This trap
+			// has already been fallen into twice here.
 			auto head = [](const std::vector<uint8_t> &v) {
 				return std::vector<uint8_t>(v.begin(),
 				                            v.begin() + std::min<size_t>(v.size(), 4));
@@ -549,14 +547,14 @@ int main(int argc, char **argv) {
 	std::printf("=== C: нота 60, громкость 40 ===\n");
 	runs.push_back({"C 60/40 ", window(proc, 60, 40, kWindow)});
 
-	// Четвёртый раздражитель: ДРУГОЙ ТЕМБР при той же ноте и громкости. Дорога снята
-	// раньше (plugin/audio_test.cpp): Exit, Exit -> Timbre -> Edit открывается на странице
-	// «Tone =», и Number+ выбирает другой звук.
+	// Fourth stimulus: a DIFFERENT TIMBRE with the same note and volume. The way was found
+	// earlier (plugin/audio_test.cpp): Exit, Exit -> Timbre -> Edit opens on the "Tone =" page,
+	// and Number+ selects a different sound.
 	std::printf("=== D: нота 60, громкость 100, ДРУГОЙ тембр ===\n");
-	// Тембр выбирается от УПОРА, а не «плюс семь от того, что было». Память прошивки живёт
-	// между прогонами, поэтому относительный выбор уползает: в одном прогоне это был тембр
-	// 31, в следующем 38 - а тот берёт уже четыре партиала вместо двух, и сравнивать стало
-	// не с чем. От нижнего упора номер один и тот же всегда.
+	// The timbre is selected from the STOP, not as "plus seven from what it was". Firmware memory
+	// lives between runs, so a relative selection drifts: in one run it was timbre 31, in the
+	// next 38 - and that one takes four partials instead of two, and there was nothing to
+	// compare with. From the lower stop the number is always the same.
 	press(proc, "Exit", 2);
 	press(proc, "Timbre");
 	press(proc, "Edit");

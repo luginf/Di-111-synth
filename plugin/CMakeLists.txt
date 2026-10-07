@@ -1,16 +1,16 @@
 ﻿cmake_minimum_required(VERSION 3.22)
-# Номер версии - это оценка готовности в процентах, а не порядковый счётчик выпусков.
-# 0.9.9 обещала девяносто девять и была слишком щедра: микросхема ревербератора BOSS не
-# была эмулирована вовсе, а это заметная часть звука прибора, и восьми индивидуальных
-# выходов тоже нет. Оценка честно опущена, хотя номер при этом идёт назад.
+# The version number is a readiness estimate in percent, not a sequential release counter.
+# 0.9.9 promised ninety-nine and was too generous: the BOSS reverb chip was not emulated
+# at all, which is a noticeable part of the unit's sound, and the eight individual
+# outputs were missing too. The estimate was honestly lowered, even though the number goes backwards.
 #
-# 2026-08-04: оба исправлены. Ревербератор BOSS (чип HG61H20R36F/BOS-007, ПЗУ IC6)
-# теперь звучит настоящей эмуляцией микрокода (BossEmu, перенесена из
-# github.com/davidhsilaban/munt с сохранением авторства - Sergey V. Mikayev), а не
-# приближением через четыре режима MT-32. Шесть индивидуальных выходов (MULTI OUT 1-6,
-# плюс основная стерео-шина MIX) подключены как отдельные шины VST3, по умолчанию
-# выключены - маршрутизация по Output Assign партии проверена измерением, звук приходит
-# ровно в назначенный канал и ни в один другой.
+# 2026-08-04: both fixed. The BOSS reverb (chip HG61H20R36F/BOS-007, ROM IC6)
+# now sounds through a real microcode emulation (BossEmu, ported from
+# github.com/davidhsilaban/munt with authorship preserved - Sergey V. Mikayev), instead of an
+# approximation through four MT-32 modes. Six individual outputs (MULTI OUT 1-6,
+# plus the main stereo MIX bus) are wired up as separate VST3 buses, off by default -
+# routing by the part's Output Assign was verified by measurement, the sound arrives
+# exactly in the assigned channel and in no other.
 project(D110Emulator VERSION 0.9.5)
 
 # C++20 because MAME's headers need it.
@@ -24,9 +24,9 @@ if(MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
 endif()
 
-# Комментарии в этом проекте пишутся по-русски, а MSVC без этого ключа читает исходник
-# в кодовой странице системы и на кириллице выдаёт C4819 - а в худшем случае съедает
-# байт, похожий на обратную косую черту, в конце строки комментария.
+# Comments in this project were historically written in Russian, and without this switch MSVC reads the source
+# in the system code page and emits C4819 on Cyrillic - and in the worst case swallows
+# a byte that looks like a backslash at the end of a comment line.
 if(MSVC)
     add_compile_options(/utf-8)
 endif()
@@ -130,8 +130,8 @@ option(D110_BUILD_CLAP "Also build a CLAP plugin of the native product (Linux)" 
 if(D110_BUILD_MAME_BACKEND)
 
 juce_add_plugin(D110Emulator
-    # Без этого JUCE ставит собственную версию по умолчанию, и хост показывает её вместо
-    # той, под которой выпущена сборка. Версия здесь одна и берётся из project() выше.
+    # Without this JUCE sets its own default version, and the host shows it instead of
+    # the one the build was released under. The version lives in one place, project() above.
     VERSION ${PROJECT_VERSION}
     COMPANY_NAME "DIY"
     IS_SYNTH TRUE
@@ -682,9 +682,9 @@ target_link_libraries(d110_part_state PRIVATE
     juce::juce_audio_utils juce::juce_audio_processors)
 target_link_options(d110_part_state PRIVATE ${MAME_LINK_OPTIONS})
 
-# Спрашивает по каждой партии и за ОДИН прогон, держит ли движок тот тембр, который
-# держит прошивка, - по имени, чего измерение уровня не умеет. Собственный путь чтения
-# из движка доказывает контролем "записал и прочитал обратно" до всех прочих показаний.
+# Asks for every part, in ONE run, whether the engine holds the same timbre as the
+# firmware does - by name, which a level measurement cannot do. Proves the engine's own read path
+# with a "write and read back" control before any other readings.
 add_executable(d110_tone_clobber tone_clobber_probe.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -703,8 +703,8 @@ target_link_libraries(d110_tone_clobber PRIVATE
     juce::juce_audio_utils juce::juce_audio_processors)
 target_link_options(d110_tone_clobber PRIVATE ${MAME_LINK_OPTIONS})
 
-# Различает две причины «Attempted to play unmapped key» в начале демо: карту ритма,
-# которая ещё не доехала до движка, и карту, в которой клавиша действительно выключена.
+# Tells apart two causes of "Attempted to play unmapped key" at the start of the demo: a rhythm map
+# that has not reached the engine yet, and a map in which the key really is switched off.
 add_executable(d110_rhythm_map rhythm_map_probe.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -723,8 +723,8 @@ target_link_libraries(d110_rhythm_map PRIVATE
     juce::juce_audio_utils juce::juce_audio_processors)
 target_link_options(d110_rhythm_map PRIVATE ${MAME_LINK_OPTIONS})
 
-# Ищет путь, которым тип/время/уровень ревербератора доходят до микросхемы BOSS: жмёт
-# кнопки, печатает экран и показывает рядом сдвиги ОЗУ и записи в регистр SO.
+# Looks for the path by which the reverb type/time/level reach the BOSS chip: presses
+# buttons, prints the screen and shows RAM shifts and SO register writes side by side.
 add_executable(d110_reverb_path reverb_path_probe.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -743,8 +743,8 @@ target_link_libraries(d110_reverb_path PRIVATE
     juce::juce_audio_utils juce::juce_audio_processors)
 target_link_options(d110_reverb_path PRIVATE ${MAME_LINK_OPTIONS})
 
-# Карта регистров LA32: что прошивка кладёт в микросхему синтеза и какая ячейка что значит.
-# Три раздражителя, отличающиеся ровно одним свойством, плюс окно без ноты как контроль.
+# LA32 register map: what the firmware puts into the synth chip and what each cell means.
+# Three stimuli differing in exactly one property, plus a window with no note as a control.
 add_executable(d110_la32_regmap la32_regmap_probe.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -763,9 +763,9 @@ target_link_libraries(d110_la32_regmap PRIVATE
     juce::juce_audio_utils juce::juce_audio_processors)
 target_link_options(d110_la32_regmap PRIVATE ${MAME_LINK_OPTIONS})
 
-# Доезжает ли заводской банк патчей до самой прошивки и что он меняет в её памяти. Разницу
-# «до и после» сравнивает с контрольным окном такой же длины БЕЗ импорта, потому что
-# прошивка непрерывно пишет в свои рабочие области и сама по себе.
+# Does the factory patch bank reach the firmware itself and what does it change in its memory. The
+# "before and after" difference is compared with a control window of the same length WITHOUT an import, because
+# the firmware writes continuously into its work areas on its own.
 add_executable(d110_factory_bank factory_bank_probe.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -784,10 +784,10 @@ target_link_libraries(d110_factory_bank PRIVATE
     juce::juce_audio_utils juce::juce_audio_processors)
 target_link_options(d110_factory_bank PRIVATE ${MAME_LINK_OPTIONS})
 
-# Обратный путь моста: доходит ли правка, посланная эксклюзивным сообщением, до самой
-# прошивки, куда она ложится и не запрещает ли её Mem Protect. Это фундамент расширенного
-# редактора - без него правка из редактора была бы догадкой. Заодно измеряет место памяти
-# ТОНОВ, которого не найти по содержимому: в заводском приборе она пуста.
+# The bridge's reverse path: does an edit sent as an exclusive message reach the firmware
+# itself, where does it land and does Mem Protect forbid it. This is the foundation of the extended
+# editor - without it an edit from the editor would be a guess. Also measures the location of the TONE
+# memory, which cannot be found by content: it is empty in a factory unit.
 add_executable(d110_editor_write editor_write_probe.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -806,8 +806,8 @@ target_link_libraries(d110_editor_write PRIVATE
     juce::juce_audio_utils juce::juce_audio_processors)
 target_link_options(d110_editor_write PRIVATE ${MAME_LINK_OPTIONS})
 
-# Снимок расширенного редактора в PNG - настоящего компонента, с живыми значениями из
-# работающего прибора. Судить о разметке по константам нельзя, поэтому её снимают и смотрят.
+# A PNG snapshot of the extended editor - the real component, with live values from a
+# running unit. Layout cannot be judged from constants, so it is photographed and looked at.
 add_executable(d110_editor_shot editor_shot.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -832,12 +832,12 @@ target_link_libraries(d110_editor_shot PRIVATE
     juce::juce_audio_utils juce::juce_audio_processors)
 target_link_options(d110_editor_shot PRIVATE ${MAME_LINK_OPTIONS})
 
-# Доходит ли правка из расширенного редактора до прибора, до звука и обратно. Проверяет
-# каждый отправитель по памяти прошивки, слышимость - по RMS с контрольным прогоном, и
-# переход на патч - по номеру, на котором прибор в итоге стоит.
+# Does an edit from the extended editor reach the unit, the sound, and come back. Checks
+# every sender against the firmware memory, audibility by RMS with a control run, and
+# the switch to a patch by the number the unit ends up on.
 #
-# JUCE_MODAL_LOOPS_PERMITTED здесь включён намеренно и только для этой цели: переход на патч
-# идёт по таймеру очереди сообщений, а в консольной программе эту очередь надо крутить руками.
+# JUCE_MODAL_LOOPS_PERMITTED is enabled here deliberately and only for this purpose: the switch to a patch
+# goes through the message queue timer, and in a console program that queue has to be pumped by hand.
 add_executable(d110_editor_test editor_test.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -856,9 +856,9 @@ target_link_libraries(d110_editor_test PRIVATE
     juce::juce_audio_utils juce::juce_audio_processors)
 target_link_options(d110_editor_test PRIVATE ${MAME_LINK_OPTIONS})
 
-# Ищет адрес, по которому прошивка задаёт ТИП ревербератора: перехватывает весь свободный
-# внешний ввод-вывод 0x0400-0x0BFF, разворачивает восемь типов и сравнивает с контрольным
-# прогоном, где нажатия и нота те же, а тип не меняется.
+# Looks for the address by which the firmware sets the reverb TYPE: intercepts all of the free
+# external I/O 0x0400-0x0BFF, steps through the eight types and compares with a control
+# run where the key presses and the note are the same but the type does not change.
 add_executable(d110_reverb_reg reverb_reg_probe.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -877,10 +877,10 @@ target_link_libraries(d110_reverb_reg PRIVATE
     juce::juce_audio_utils juce::juce_audio_processors)
 target_link_options(d110_reverb_reg PRIVATE ${MAME_LINK_OPTIONS})
 
-# Переживает ли правка тембра смену параметра партии на ОБЫЧНОМ патче - вопрос, на который
-# демо-песня ответить не может, потому что её группа тембра 5 с панели недостижима. Ставит
-# опыт дважды в одном прогоне, с подтверждением тембров и без него, чтобы у результата был
-# контроль, умеющий показать отказ.
+# Does a timbre edit survive a part parameter change on a NORMAL patch - a question the
+# demo song cannot answer, because its timbre group 5 is unreachable from the panel. Sets
+# up the experiment twice in one run, with and without timbre confirmation, so that the result has a
+# control capable of showing a failure.
 add_executable(d110_tone_edit_survives tone_edit_survives_probe.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -899,9 +899,9 @@ target_link_libraries(d110_tone_edit_survives PRIVATE
     juce::juce_audio_utils juce::juce_audio_processors)
 target_link_options(d110_tone_edit_survives PRIVATE ${MAME_LINK_OPTIONS})
 
-# Первый мост от регистров к звуку: снятое с прошивки состояние прогоняется через модель той
-# же микросхемы из munt. Включает её внутренние заголовки - библиотека статическая, символы на
-# месте, а публичного интерфейса у генератора волны нет и не задумано.
+# The first bridge from registers to sound: state captured from the firmware is run through the model of the
+# same chip from munt. Includes its internal headers - the library is static, the symbols are
+# there, but the wave generator has no public interface and none is planned.
 add_executable(d110_la32_render la32_render.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -922,8 +922,8 @@ target_link_libraries(d110_la32_render PRIVATE
     juce::juce_audio_utils juce::juce_audio_processors)
 target_link_options(d110_la32_render PRIVATE ${MAME_LINK_OPTIONS})
 
-# Что банк 0x0CC0 несёт во времени, пока нота звучит. Печатает поток как ряд, а не сравнивает
-# множества значений - на этом сравнении три прежних захода на этот банк и провалились.
+# What the 0x0CC0 bank carries over time while a note sounds. Prints the stream as a series rather than comparing
+# sets of values - that comparison is what the three earlier attempts at this bank failed on.
 add_executable(d110_la32_stream la32_stream_probe.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -942,7 +942,7 @@ target_link_libraries(d110_la32_stream PRIVATE
     juce::juce_audio_utils juce::juce_audio_processors)
 target_link_options(d110_la32_stream PRIVATE ${MAME_LINK_OPTIONS})
 
-# Снимает настоящую панель в PNG, чтобы её было на что посмотреть рядом с фотографией.
+# Captures the real panel to a PNG so there is something to look at next to the photograph.
 add_executable(d110_panel_render panel_render.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -953,8 +953,8 @@ add_executable(d110_panel_render panel_render.cpp
     Source/sequencer/D110SequencerGridPanel.cpp
     Source/DotMatrixFont.cpp "${MAME_DRIVLIST}")
 target_include_directories(d110_panel_render PRIVATE ${MAME_INCLUDES} "${CMAKE_CURRENT_SOURCE_DIR}")
-# Ход карты двигает собственный таймер панели, поэтому стенду нужен настоящий цикл
-# сообщений; в плагине он не нужен и не включается.
+# The map's progress is driven by the panel's own timer, so the test rig needs a real message
+# loop; the plugin does not need it and does not enable it.
 target_compile_definitions(d110_panel_render PRIVATE ${MAME_DEFS}
     JUCE_STANDALONE_APPLICATION=0 JUCE_MODULE_AVAILABLE_juce_audio_plugin_client=0
     JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1)
@@ -963,8 +963,8 @@ target_link_libraries(d110_panel_render PRIVATE
     juce::juce_audio_utils juce::juce_audio_processors)
 target_link_options(d110_panel_render PRIVATE ${MAME_LINK_OPTIONS})
 
-# Чем прошивка отличает вставленную карту памяти от пустого гнезда. Подставляет ей четыре
-# разные карты и снимает с экрана, что она о каждой сказала.
+# What the firmware uses to tell an inserted memory card from an empty slot. Feeds it four
+# different cards and captures from the screen what it said about each.
 add_executable(d110_card card_probe.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -983,8 +983,8 @@ target_link_libraries(d110_card PRIVATE
     juce::juce_audio_utils juce::juce_audio_processors)
 target_link_options(d110_card PRIVATE ${MAME_LINK_OPTIONS})
 
-# Ищет момент, когда прошивка перепрограммирует микросхему ревербератора: пишет каждую
-# запись в регистр SO вместе с адресом подпрограммы, которая её сделала.
+# Looks for the moment when the firmware reprograms the reverb chip: writes every
+# write to the SO register together with the address of the routine that made it.
 add_executable(d110_so_trace so_trace_probe.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -1097,9 +1097,9 @@ target_compile_definitions(d110_core_test PRIVATE ${MAME_DEFS})
 target_link_libraries(d110_core_test PRIVATE ${MAME_LIBS} ${MAME_SYS_LIBS})
 target_link_options(d110_core_test PRIVATE ${MAME_LINK_OPTIONS})
 
-# Куда деваются ноты при быстрой игре: их теряет заглушка LA32 или их некуда играть.
-# Считает ноту на трёх рубежах - отправлено, взято прошивкой, занято у движка - и делает это
-# дважды, тоном в два партиала и тоном в четыре, чтобы полифонию нельзя было спутать с потерей.
+# Where notes go during fast playing: either the LA32 stub loses them or there is nowhere to play them.
+# Counts a note at three checkpoints - sent, taken by the firmware, taken by the engine - and does this
+# twice, with a two-partial tone and a four-partial tone, so that polyphony cannot be mistaken for loss.
 add_executable(d110_polyphony polyphony_test.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -1179,9 +1179,9 @@ target_link_libraries(d110_mame_stuck_note_repro PRIVATE
     juce::juce_audio_utils juce::juce_audio_processors)
 target_link_options(d110_mame_stuck_note_repro PRIVATE ${MAME_LINK_OPTIONS})
 
-# Кто пишет в таблицу слотов LA32 и освобождает ли её хоть кто-нибудь. Перехват записей в
-# окно диспетчеризации даёт адрес, значение и PC - то есть отвечает не догадкой, а именем
-# подпрограммы. См. docs/la32_interface.md.
+# Who writes to the LA32 slot table and whether anyone ever frees it. Intercepting writes to
+# the dispatch window gives the address, value and PC - i.e. it answers not with a guess but with the name
+# of a routine. See docs/la32_interface.md.
 add_executable(d110_slot_life slot_life_probe.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -1200,10 +1200,10 @@ target_link_libraries(d110_slot_life PRIVATE
     juce::juce_audio_utils juce::juce_audio_processors)
 target_link_options(d110_slot_life PRIVATE ${MAME_LINK_OPTIONS})
 
-# Восстановление настоящей батарейной памяти прибора после порчи файла (например, резким
-# обрывом питания посреди записи). Идёт тем же путём, что и сам плагин, - через
-# D110AudioProcessor::getNvramRoot() без единого своего аргумента, - поэтому правит именно
-# тот файл, который откроет установленный VST3.
+# Restoring the unit's real battery-backed memory after the file was corrupted (for example by an abrupt
+# power loss in the middle of a write). Goes the same way as the plugin itself - through
+# D110AudioProcessor::getNvramRoot() without a single argument of its own - so it fixes exactly
+# the file that the installed VST3 will open.
 add_executable(d110_nvram_recovery nvram_recovery.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -1222,10 +1222,10 @@ target_link_libraries(d110_nvram_recovery PRIVATE
     juce::juce_audio_utils juce::juce_audio_processors)
 target_link_options(d110_nvram_recovery PRIVATE ${MAME_LINK_OPTIONS})
 
-# Проверяет документированную процедуру факт-сброса ("POWER off, Ctrl+click WRITE/COPY,
-# POWER on, ENTER") настоящими нажатиями по настоящей D110Panel - в отличие от
-# coldstart_test.cpp, который вызывает D110Core::setButton() в обход панели и потому не мог
-# бы поймать регрессию в самой D110Panel::setButtonState().
+# Checks the documented factory-reset procedure ("POWER off, Ctrl+click WRITE/COPY,
+# POWER on, ENTER") with real presses on a real D110Panel - unlike
+# coldstart_test.cpp, which calls D110Core::setButton() bypassing the panel and so could not
+# catch a regression in D110Panel::setButtonState() itself.
 add_executable(d110_panel_factory_init panel_factory_init_test.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -1244,9 +1244,9 @@ target_link_libraries(d110_panel_factory_init PRIVATE
     juce::juce_audio_utils juce::juce_audio_processors)
 target_link_options(d110_panel_factory_init PRIVATE ${MAME_LINK_OPTIONS})
 
-# Насколько на самом деле расходится время регистрации ноты прошивкой, если несколько
-# партий бьют одновременно - измеряет по-настоящему через D110Core::startNoteLog(), а не
-# пересчитывает байтовую скорость на бумаге. См. docs про общую очередь MIDI к прошивке.
+# How much the firmware's note registration time actually diverges when several
+# parts strike at once - measured for real through D110Core::startNoteLog(), rather than by
+# recomputing the byte rate on paper. See docs on the shared MIDI queue to the firmware.
 add_executable(d110_midi_congestion midi_congestion_probe.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -1265,9 +1265,9 @@ target_link_libraries(d110_midi_congestion PRIVATE
     juce::juce_audio_utils juce::juce_audio_processors)
 target_link_options(d110_midi_congestion PRIVATE ${MAME_LINK_OPTIONS})
 
-# Заливка банка тонов в настоящую память прибора. Отдельный инструмент, а не часть
-# nvram_recovery: тот возвращает заводское состояние, а память тонов заводским состоянием
-# ПУСТА, и наполнить её можно только банком со стороны.
+# Loading a tone bank into the unit's real memory. A separate tool, not part of
+# nvram_recovery: that one restores the factory state, and the tone memory in the factory state is
+# EMPTY, and it can only be filled with a bank from outside.
 add_executable(d110_bank_import bank_import.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -1286,9 +1286,9 @@ target_link_libraries(d110_bank_import PRIVATE
     juce::juce_audio_utils juce::juce_audio_processors)
 target_link_options(d110_bank_import PRIVATE ${MAME_LINK_OPTIONS})
 
-# Воспроизведение жалобы «ноты залипают на всех партиях сразу». Отдельно от d110_polyphony:
-# тот меряет ПОТЕРИ нот на одной партии, а этот - ОСТАТОК при отпущенных клавишах на всех
-# девяти, и это противоположные признаки.
+# Reproduction of the complaint "notes get stuck on all parts at once". Separate from d110_polyphony:
+# that one measures note LOSS on a single part, while this one measures the RESIDUE with the keys released on all
+# nine, and these are opposite symptoms.
 add_executable(d110_stuck_notes stuck_notes_probe.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -1327,9 +1327,9 @@ target_link_libraries(d110_mame_ramp_edge_stress PRIVATE
     juce::juce_audio_utils juce::juce_audio_processors)
 target_link_options(d110_mame_ramp_edge_stress PRIVATE ${MAME_LINK_OPTIONS})
 
-# Играет каждую ритм-клавишу по отдельности и меряет пик. Отвечает на "closed hat не
-# звучит" измерением, а не догадкой - список молчащих клавиш даёт прямо, без предположений
-# о том, какая именно сломана.
+# Plays each rhythm key individually and measures the peak. Answers "closed hat does not
+# sound" by measurement, not by guesswork - gives the list of silent keys directly, without assumptions
+# about which one exactly is broken.
 add_executable(d110_rhythm_key rhythm_key_probe.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -1348,9 +1348,9 @@ target_link_libraries(d110_rhythm_key PRIVATE
     juce::juce_audio_utils juce::juce_audio_processors)
 target_link_options(d110_rhythm_key PRIVATE ${MAME_LINK_OPTIONS})
 
-# Проверка: возвращает ли повторный выбор текущего патча живую Timbre Temp к данным патча.
-# Живая область читалась сплошным центром (pan 7 у всех восьми) при верных данных в самом
-# патче - вопрос в том, чинится ли это тем же нажатием, каким пользуется панель.
+# Check: does reselecting the current patch return the live Timbre Temp to the patch data.
+# The live area was read as a solid center (pan 7 on all eight) with correct data in the patch
+# itself - the question is whether the same press the panel uses fixes it.
 add_executable(d110_pan_resync pan_resync_probe.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -1369,18 +1369,18 @@ target_link_libraries(d110_pan_resync PRIVATE
     juce::juce_audio_utils juce::juce_audio_processors)
 target_link_options(d110_pan_resync PRIVATE ${MAME_LINK_OPTIONS})
 
-# Проверка на девственной, временной НВР: сразу после заводского сброса, ДО единого нажатия
-# пользователем, читается ли живая панорама верно или сплошным центром - разводит "баг
-# загрузки прошивки" и "накопленный след сегодняшних опытов в реальном файле".
+# Check on a virgin, temporary NVRAM: right after the factory reset, BEFORE a single user
+# press, is the live pan read correctly or as a solid center - separates a "firmware boot
+# bug" from "the accumulated trace of today's experiments in the real file".
 add_executable(d110_virgin_boot virgin_boot_probe.cpp Source/D110Core.cpp "${MAME_DRIVLIST}")
 target_include_directories(d110_virgin_boot PRIVATE ${MAME_INCLUDES} "${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_definitions(d110_virgin_boot PRIVATE ${MAME_DEFS})
 target_link_libraries(d110_virgin_boot PRIVATE ${MAME_LIBS} ${MAME_SYS_LIBS})
 target_link_options(d110_virgin_boot PRIVATE ${MAME_LINK_OPTIONS})
 
-# Трассирует запись в таблицы полного круга голоса (dispatch + completion) для одного удара
-# по ритм-клавише, чтобы найти источник "Attempted to play invalid key 1" рядом с closed
-# hat/open hat: пишет ли это сама прошивка в f400[], или подмена происходит в нашем мосте.
+# Traces writes to the full voice circuit tables (dispatch + completion) for a single hit
+# on a rhythm key, to find the source of "Attempted to play invalid key 1" near closed
+# hat/open hat: whether the firmware itself writes this into f400[], or the substitution happens in our bridge.
 add_executable(d110_rhythm_ctx rhythm_ctx_probe.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -1399,10 +1399,10 @@ target_link_libraries(d110_rhythm_ctx PRIVATE
     juce::juce_audio_utils juce::juce_audio_processors)
 target_link_options(d110_rhythm_ctx PRIVATE ${MAME_LINK_OPTIONS})
 
-# «Патчи в демо-песне не соответствуют» - разводит два возможных объяснения: демо трогает
-# Patch/Timbre Memory (значит зависит от того, что реально лежит в батарейной памяти
-# пользователя, у которой нет настоящих заводских имён без карты FACTORY PRESET), или демо
-# полностью самодостаточна и патчей пользователя не касается вовсе.
+# "The patches in the demo song do not match" - separates two possible explanations: the demo touches
+# Patch/Timbre Memory (so it depends on what really lies in the user's battery-backed memory,
+# which has no real factory names without a FACTORY PRESET card), or the demo
+# is entirely self-contained and does not touch the user's patches at all.
 add_executable(d110_demo_patch demo_patch_probe.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -1421,9 +1421,9 @@ target_link_libraries(d110_demo_patch PRIVATE
     juce::juce_audio_utils juce::juce_audio_processors)
 target_link_options(d110_demo_patch PRIVATE ${MAME_LINK_OPTIONS})
 
-# «Синхронизация с Ableton плывёт» - меряет реальную задержку между подачей ноты в
-# processBlock и моментом, когда прошивка сама её регистрирует (NoteLog). Демо-песня этого
-# круга не проходит вовсе (прошивка играет сама себе), поэтому и не плывёт.
+# "Sync with Ableton drifts" - measures the real delay between feeding a note into
+# processBlock and the moment the firmware itself registers it (NoteLog). The demo song never goes
+# through this loop (the firmware plays to itself), so it does not drift.
 add_executable(d110_note_latency note_latency_probe.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -1442,9 +1442,9 @@ target_link_libraries(d110_note_latency PRIVATE
     juce::juce_audio_utils juce::juce_audio_processors)
 target_link_options(d110_note_latency PRIVATE ${MAME_LINK_OPTIONS})
 
-# Проверяет перенесённый BOSS-ревербератор не на компиляции, а на звуке: грузится ли
-# ic6.bin, доходит ли байт типа ревербератора (System 0x2D95) до BossEmu, и дают ли разные
-# из восьми типов заметно разный хвост затухания.
+# Checks the ported BOSS reverb not at compile time but on sound: is
+# ic6.bin loaded, does the reverb type byte (System 0x2D95) reach BossEmu, and do different
+# ones of the eight types give a noticeably different decay tail.
 add_executable(d110_boss_reverb boss_reverb_probe.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -1463,8 +1463,8 @@ target_link_libraries(d110_boss_reverb PRIVATE
     juce::juce_audio_utils juce::juce_audio_processors)
 target_link_options(d110_boss_reverb PRIVATE ${MAME_LINK_OPTIONS})
 
-# Проверка одного типа ревербератора в СВЕЖЕМ экземпляре (аргумент argv[1]) - разводит
-# "тип сам по себе тих" от "переключение между типами что-то ломает".
+# Check of a single reverb type in a FRESH instance (argument argv[1]) - separates
+# "the type is quiet by itself" from "switching between types breaks something".
 add_executable(d110_boss_reverb_iso boss_reverb_isolated_probe.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -1483,9 +1483,9 @@ target_link_libraries(d110_boss_reverb_iso PRIVATE
     juce::juce_audio_utils juce::juce_audio_processors)
 target_link_options(d110_boss_reverb_iso PRIVATE ${MAME_LINK_OPTIONS})
 
-# Проверяет перенесённые шесть индивидуальных выходов на маршрутизации звука, не только на
-# компиляции: включает все доп. шины, меняет Output Assign партии 1, меряет энергию в
-# каждом из восьми каналов.
+# Checks the ported six individual outputs on sound routing, not only on
+# compilation: enables all the extra buses, changes the Output Assign of part 1, measures the energy in
+# each of the eight channels.
 add_executable(d110_multi_output multi_output_probe.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -1504,9 +1504,9 @@ target_link_libraries(d110_multi_output PRIVATE
     juce::juce_audio_utils juce::juce_audio_processors)
 target_link_options(d110_multi_output PRIVATE ${MAME_LINK_OPTIONS})
 
-# Регрессия по слуху: играешь кик (35), потом Closed Hi-Hat (42) - и на хай-хэте звучит
-# соседний барабан. Причина была в том, что подсказка для подмены ставилась в очередь для
-# ЛЮБОЙ ритм-ноты, а не только для трёх сломанных клавиш - рабочие клавиши душили очередь.
+# Regression by ear: you play a kick (35), then Closed Hi-Hat (42) - and on the hi-hat a
+# neighbouring drum sounds. The cause was that the substitution hint was queued for
+# ANY rhythm note, not just for the three broken keys - working keys choked the queue.
 add_executable(d110_rhythm_hint_bleed rhythm_hint_bleed_probe.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -1525,10 +1525,10 @@ target_link_libraries(d110_rhythm_hint_bleed PRIVATE
     juce::juce_audio_utils juce::juce_audio_processors)
 target_link_options(d110_rhythm_hint_bleed PRIVATE ${MAME_LINK_OPTIONS})
 
-# Диагностика: pan_verify.cpp только что показал 6 из 8 партий беззвучными после заводского
-# сброса. Дамп живой Timbre Temp/Tone Temp для всех восьми партий сразу после того же
-# сброса - разделяет "правки Synth.cpp сломали рендер" и "живая область просто не
-# заполняется сбросом для большинства партий".
+# Diagnostic: pan_verify.cpp just showed 6 of 8 parts silent after a factory
+# reset. Dump of the live Timbre Temp/Tone Temp for all eight parts right after the same
+# reset - separates "the Synth.cpp edits broke the render" from "the live area simply is not
+# filled by the reset for most parts".
 add_executable(d110_pan_verify_diag pan_verify_diag_probe.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -1547,8 +1547,8 @@ target_link_libraries(d110_pan_verify_diag PRIVATE
     juce::juce_audio_utils juce::juce_audio_processors)
 target_link_options(d110_pan_verify_diag PRIVATE ${MAME_LINK_OPTIONS})
 
-# Настоящее звуковое измерение панорамы барабанов - до сих пор сверяли только байт в
-# памяти против заводского дампа, никогда реальный звук по обоим каналам.
+# A real sound measurement of the drum pan - until now only the byte in
+# memory was checked against the factory dump, never the real sound on both channels.
 add_executable(d110_rhythm_pan_audio rhythm_pan_audio_probe.cpp
     Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/SoundbankDatabase.cpp Source/SoundbankBrowser.cpp Source/D110Keyboard.cpp Source/D110Core.cpp
     Source/sequencer/D110SequencerEngine.cpp
@@ -2284,6 +2284,12 @@ target_include_directories(d110_sequencer_probe PRIVATE "${CMAKE_CURRENT_SOURCE_
 target_compile_definitions(d110_sequencer_probe PRIVATE JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0)
 target_link_libraries(d110_sequencer_probe PRIVATE juce::juce_audio_basics juce::juce_core)
 
+# dropRogueInitialPitchBend() (Source/PitchBendGuard.h) - header-only, no firmware needed.
+add_executable(d110_pitch_bend_guard_probe pitch_bend_guard_probe.cpp)
+target_include_directories(d110_pitch_bend_guard_probe PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_definitions(d110_pitch_bend_guard_probe PRIVATE JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0)
+target_link_libraries(d110_pitch_bend_guard_probe PRIVATE juce::juce_audio_basics juce::juce_core)
+
 # d110bank::Database on its own - see SoundbankDatabase.h's own comment for why it has no
 # firmware/core dependency at all, matching this probe's own minimal link list.
 add_executable(d110_soundbank_probe soundbank_probe.cpp Source/SoundbankDatabase.cpp)
@@ -2531,3 +2537,11 @@ target_link_libraries(d110_mame_note_probe PRIVATE ${MAME_LIBS} ${MAME_SYS_LIBS}
 target_link_options(d110_mame_note_probe PRIVATE ${MAME_LINK_OPTIONS})
 
 endif() # D110_BUILD_MAME_BACKEND
+
+# ROM-free headless probes, run by CI (.github/workflows/headless-probes.yml) via ctest.
+enable_testing()
+foreach(_t d110_sequencer_probe d110_soundbank_probe d110_pitch_bend_guard_probe)
+    if(TARGET ${_t})
+        add_test(NAME ${_t} COMMAND ${_t})
+    endif()
+endforeach()

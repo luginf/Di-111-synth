@@ -1,16 +1,16 @@
-// Когда прошивка трогает регистр SO, и какая подпрограмма это делает.
+// When the firmware touches the SO register, and which subroutine does it.
 //
-// SO - единственный виденный путь от процессора к микросхеме ревербератора BOSS: биты 1-2
-// это A13/A14 её ПЗУ, то есть номер программы, бит 3 - "R. SW." на аналоговую плату
-// (roland_d10.cpp, so_w). Предыдущий зонд (d110_reverb_path) показал, что при правке
-// Reverb Type регистр не пишется ВООБЩЕ, и что за всю загрузку записей всего четыре.
-// Значит момент перепрограммирования - какой-то другой, и его надо найти: без него нечего
-// подавать на вход будущей эмуляции микросхемы, да и просто неизвестно, отвечает ли
-// вообще номер программы за тип ревербератора.
+// SO is the only path seen from the processor to the BOSS reverb chip: bits 1-2
+// are A13/A14 of its ROM, i.e. the program number, bit 3 is "R. SW." to the analog board
+// (roland_d10.cpp, so_w). The previous probe (d110_reverb_path) showed that when editing
+// Reverb Type the register is not written AT ALL, and that over the whole boot there are only four writes.
+// So the moment of reprogramming is some other one, and it has to be found: without it there is nothing
+// to feed to a future emulation of the chip, and it is not even known whether
+// the program number accounts for the reverb type at all.
 //
-// Прибор прогоняется через состояния, в каждом из которых микросхему разумно ожидать
-// перепрограммированной, и на каждом печатаются записи в SO вместе с адресом, откуда они
-// сделаны. Адрес важнее значения: он даёт точку входа для дизассемблера.
+// The instrument is run through states in each of which the chip can reasonably be expected to be
+// reprogrammed, and for each the writes to SO are printed together with the address they
+// were made from. The address matters more than the value: it gives an entry point for the disassembler.
 #include "Source/PluginProcessor.h"
 
 #include <cstdio>
@@ -112,8 +112,8 @@ void press(D110AudioProcessor &proc, const char *name, int times = 1) {
 		}
 }
 
-// Записи за прошедший отрезок, сведённые по паре "адрес + значение". Одиночные строки
-// утонули бы в повторах: лампа MIDI сидит в бите 0 того же регистра и мигает часто.
+// Writes over the elapsed interval, collapsed by the pair "address + value". Single lines
+// would drown in repeats: the MIDI lamp sits in bit 0 of the same register and blinks often.
 void report(D110AudioProcessor &proc, const char *what) {
 	const auto writes = proc.getCore().takeSoWrites();
 	const uint64_t dropped = proc.getCore().soWritesDropped();
@@ -136,15 +136,15 @@ void report(D110AudioProcessor &proc, const char *what) {
 	}
 }
 
-// Обращения по адресам, которые карта памяти не покрывает, сведённые по адресу. Так в своё
-// время нашёлся интерфейс LA32: то, чего в модели MAME нет, видно только здесь. Если тип
-// ревербератора уходит в микросхему не через SO, а через порт, которого драйвер не знает,
-// он проявится как адрес, появляющийся ровно на правке типа и не появляющийся в покое.
+// Accesses to addresses the memory map does not cover, collapsed by address. This is how the LA32
+// interface was found in its day: what the MAME model lacks is visible only here. If the reverb
+// type goes to the chip not through SO but through a port the driver does not know,
+// it will show up as an address appearing exactly on the type edit and not appearing at rest.
 void reportUnmapped(D110AudioProcessor &proc, const char *what) {
 	const auto lines = proc.getCore().takeLogLines();
 	std::map<std::string, int> byAddr;
 	for (const auto &l : lines) {
-		// Формат MAME: "...unmapped program memory write to 1234 = 56 & FF"
+		// MAME format: "...unmapped program memory write to 1234 = 56 & FF"
 		const auto to = l.find(" to ");
 		if (to == std::string::npos) continue;
 		const bool write = l.find("write") != std::string::npos;
@@ -171,8 +171,8 @@ int main() {
 	D110AudioProcessor proc;
 	proc.prepareToPlay(kSampleRate, kBlock);
 	proc.getCore().startSoTrace();
-	// Ставится ДО пуска машины: перехватчик неотображённых обращений ставится один
-	// раз при разборе устройств и позже уже не появится.
+	// Set BEFORE the machine starts: the unmapped-access hook is installed once
+	// when the devices are parsed and will not appear later.
 	proc.getCore().setLogUnmapped(true);
 	proc.setPoweredOn(true);
 	render(proc, 9.0);
@@ -183,16 +183,16 @@ int main() {
 	report(proc, "простой 3 с");
 	reportUnmapped(proc, "простой 3 с");
 
-	// Лампа MIDI MESSAGE. Проверяются ОБА направления: что она загорается на потоке байт
-	// и что потом гаснет. Проверки только на загорание мало - лампа, залипшая навсегда,
-	// прошла бы её так же успешно, как исправная.
+	// The MIDI MESSAGE lamp. BOTH directions are checked: that it lights on a byte stream
+	// and that it goes out afterwards. A check only for lighting is not enough - a lamp stuck on forever
+	// would pass it just as well as a healthy one.
 	{
 		std::printf("\n--- лампа MIDI MESSAGE ---\n");
 		std::printf("    до подачи MIDI: %s\n", proc.getCore().midiLampOn() ? "ГОРИТ" : "погашена");
-		// Замеры идут ЧАСТО и внутри потока, а не по одному на ноту: выдержка лампы
-		// сравнима с промежутком между нотами, и один замер на ноту попадает всегда в
-		// одну и ту же фазу - первая версия этой проверки так и намерила 1 из 12 на
-		// исправной лампе.
+		// Samples are taken OFTEN and inside the stream, not one per note: the lamp's hold time
+		// is comparable to the gap between notes, and one sample per note always lands in
+		// the same phase - the first version of this check measured 1 of 12 on a
+		// healthy lamp.
 		int litDuring = 0, samplesDuring = 0;
 		for (int i = 0; i < 12; ++i) {
 			juce::MidiBuffer m;
@@ -211,8 +211,8 @@ int main() {
 		            proc.getCore().midiLampOn() ? "ГОРИТ - не гаснет" : "погашена");
 	}
 
-	// Нота с хоста. Лампа MIDI - бит 0 этого же регистра, так что записи здесь ОБЯЗАНЫ
-	// быть; это контроль на исправность захвата, а не только измерение.
+	// A note from the host. The MIDI lamp is bit 0 of the same register, so writes here MUST
+	// exist; this is a health check of the capture, not only a measurement.
 	{
 		juce::MidiBuffer m;
 		m.addEvent(juce::MidiMessage::noteOn(2, 60, 0.9f), 0);
@@ -231,8 +231,8 @@ int main() {
 	report(proc, "смена патча");
 	reportUnmapped(proc, "смена патча");
 
-	// Тип ревербератора меняется, а потом играется нота: если микросхема
-	// перепрограммируется лениво, к первому звуку после правки, это увидим здесь.
+	// The reverb type is changed, and then a note is played: if the chip is
+	// reprogrammed lazily, at the first sound after the edit, we will see it here.
 	press(proc, "Exit", 2);
 	press(proc, "Patch");
 	press(proc, "Edit");
@@ -252,7 +252,7 @@ int main() {
 	}
 	report(proc, "первая нота ПОСЛЕ правки типа");
 
-	// Демо-песня: самый плотный поток нот и смен настроек, какой прибор выдаёт сам.
+	// Demo song: the densest stream of notes and setting changes the instrument produces on its own.
 	press(proc, "Exit", 2);
 	press(proc, "Edit");
 	press(proc, "Enter");
@@ -261,18 +261,18 @@ int main() {
 	std::printf("\nэкран демо: \"%s\"\n", screen(proc).c_str());
 	report(proc, "демо-песня, 12 с");
 
-	// Единственная запись в SO после загрузки шла из 0x2D28, и её значение между двумя
-	// прогонами оказалось разным - 04 и 00 - при разном сохранённом типе ревербератора.
-	// Если это не совпадение, то тип ВСЁ-ТАКИ выбирает программу ПЗУ, просто применяется
-	// она однажды при включении. Проверяется прямо: выставить тип, выключить, включить и
-	// посмотреть, что записалось. Тип живёт в батарейном ОЗУ и переживает выключение.
+	// The only write to SO after boot came from 0x2D28, and its value between two
+	// runs turned out different - 04 and 00 - with a different stored reverb type.
+	// If this is not a coincidence, then the type DOES select the ROM program after all, it is just applied
+	// once at power-on. Checked directly: set the type, power off, power on and
+	// see what was written. The type lives in battery-backed RAM and survives power-off.
 	std::printf("\n\n=== тип ревербератора -> номер программы, через выключение ===\n");
 	for (int type = 1; type <= 8; ++type) {
 		press(proc, "Exit", 2);
 		press(proc, "Patch");
 		press(proc, "Edit");
 		press(proc, "Group+");           // Name -> Reverb Type
-		press(proc, "Number-", 10);      // до нижнего упора
+		press(proc, "Number-", 10);      // to the lower stop
 		press(proc, "Number+", type - 1);
 		render(proc, 0.6);
 		std::vector<uint8_t> ram(D110Core::kRamSize, 0);

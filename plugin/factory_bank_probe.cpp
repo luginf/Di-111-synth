@@ -1,19 +1,19 @@
-// Что на самом деле делает с прибором заводской банк патчей.
+// What the factory patch bank actually does to the instrument.
 //
-// Пользовательский файл `D110ORIG.MID` разобран отдельно: 32 сообщения Roland DT1, все в
-// диапазоне 0x060000-0x063E00, 8192 байта данных - то есть Patch Memory целиком, 64 патча
-// по 128 байт. Тембровой памяти (0x080000, 64 x 256) в нём нет. Здесь проверяется не
-// содержимое файла, а другое: доезжает ли он до ПРОШИВКИ и что именно в её памяти меняет.
+// The user file `D110ORIG.MID` was parsed separately: 32 Roland DT1 messages, all in the
+// range 0x060000-0x063E00, 8192 bytes of data - i.e. the whole Patch Memory, 64 patches
+// of 128 bytes each. There is no timbre memory (0x080000, 64 x 256) in it. What is checked
+// here is not the file contents but something else: does it reach the FIRMWARE, and what exactly does it change in its memory.
 //
-// Почему нельзя просто посмотреть на разницу до и после: прошивка непрерывно пишет в
-// собственные рабочие области, и любой снимок ОЗУ отличается от предыдущего сам по себе.
-// Поэтому сначала идёт КОНТРОЛЬНЫЙ прогон ровно такой же длины БЕЗ импорта - он и даёт
-// список байтов, которые шевелятся сами. Всё, что меняется только во втором прогоне, и есть
-// работа банка.
+// Why we cannot just look at the before/after difference: the firmware writes continuously to
+// its own work areas, and any RAM snapshot differs from the previous one on its own.
+// So a CONTROL run of exactly the same length WITHOUT the import goes first - it gives the
+// list of bytes that move by themselves. Everything that changes only in the second run is
+// the bank's doing.
 //
-// Второй контроль - счётчики MIDI: банк уходит в процессор побайтно на настоящей скорости
-// MIDI (3125 байт в секунду), и «ничего не изменилось» при недоставленных байтах означало бы
-// совсем не то, что при доставленных.
+// Second control - the MIDI counters: the bank goes into the processor byte by byte at real
+// MIDI speed (3125 bytes per second), and "nothing changed" with undelivered bytes would mean
+// something quite different from the same result with delivered ones.
 #include "Source/PluginProcessor.h"
 
 #include <cstdio>
@@ -103,9 +103,9 @@ std::vector<bool> changedMask(const std::vector<uint8_t> &a, const std::vector<u
 	return m;
 }
 
-// Непрерывные участки печатаются одной строкой: банк памяти - это тысячи подряд идущих
-// байтов, и список из тысячи адресов ничего бы не сказал, а «0x????..0x???? , N байт» -
-// сказал бы всё.
+// Contiguous runs are printed on one line: a memory bank is thousands of consecutive
+// bytes, and a list of a thousand addresses would say nothing, whereas "0x????..0x????, N bytes"
+// says it all.
 int reportRuns(const std::vector<bool> &mask, const std::vector<uint8_t> &before,
                const std::vector<uint8_t> &after, const char *indent) {
 	int runs = 0, total = 0;
@@ -132,8 +132,8 @@ int reportRuns(const std::vector<bool> &mask, const std::vector<uint8_t> &before
 	return total;
 }
 
-// Первые байты записи патча - его имя в ASCII, как и у тембра. Печатаются точками
-// непечатаемые байты, чтобы пустой или мусорный слот было видно, а не принять за строку.
+// The first bytes of a patch record are its ASCII name, as with a timbre. Non-printable bytes
+// are printed as dots so that an empty or garbage slot is visible and not mistaken for a string.
 void dumpNames(const std::vector<uint8_t> &ram, int base, int stride, int count, int nameLen,
                const char *label) {
 	std::printf("  %s (ОЗУ 0x%04X, шаг %d):\n", label, base, stride);
@@ -175,8 +175,8 @@ int main(int argc, char **argv) {
 	            proc.engineIsOpen() ? "открыт" : "НЕ ОТКРЫТ",
 	            g_cgrom.empty() ? "НЕ НАЙДЕН" : "загружен");
 
-	// Холодный старт - то самое состояние, которое Roland называет «clear the memory» и
-	// после которого заводские данные полагается заливать по MIDI.
+	// Cold start - the very state Roland calls "clear the memory" and after which the
+	// factory data is supposed to be loaded over MIDI.
 	std::printf("\nхолодный старт (WRITE/COPY при включении)...\n");
 	proc.getCore().factoryReset();
 	render(proc, 3.0);
@@ -186,7 +186,7 @@ int main(int argc, char **argv) {
 
 	constexpr double kWindow = 20.0;
 
-	// ---- КОНТРОЛЬ: что шевелится само, без всякого импорта -----------------------------
+	// ---- CONTROL: what moves by itself, with no import at all -----------------------
 	std::printf("\n=== КОНТРОЛЬ: окно %.0f с БЕЗ импорта ===\n", kWindow);
 	const auto quietBefore = snapshot(proc);
 	render(proc, kWindow);
@@ -194,16 +194,16 @@ int main(int argc, char **argv) {
 	const auto noise = changedMask(quietBefore, quietAfter);
 	reportRuns(noise, quietBefore, quietAfter, "    ");
 
-	// ---- импорт ------------------------------------------------------------------------
+	// ---- import ------------------------------------------------------------------------
 	std::printf("\n=== импорт банка ===\n");
 	const uint64_t midiInBefore = proc.getCore().midiForwarded();
 	const uint64_t midiOutBefore = proc.getCore().midiDelivered();
 	const auto before = snapshot(proc);
 
 	proc.importSysexBank(bank);
-	// Байты уходят в процессор на настоящей скорости MIDI - 3125 байт в секунду, - поэтому
-	// окно берётся с запасом относительно размера файла, а доставку всё равно подтверждают
-	// счётчики ниже, а не расчёт времени.
+	// The bytes go into the processor at real MIDI speed - 3125 bytes per second - so the
+	// window is taken with a margin relative to the file size, and delivery is still confirmed
+	// by the counters below, not by a time calculation.
 	render(proc, kWindow);
 
 	const auto after = snapshot(proc);
@@ -224,7 +224,7 @@ int main(int argc, char **argv) {
 
 	std::printf("  экран после импорта: \"%s\"\n", screen(proc).c_str());
 
-	// ---- что изменилось СВЕРХ собственного шума прошивки --------------------------------
+	// ---- what changed ON TOP of the firmware's own noise --------------------------------
 	std::printf("\n=== изменения от импорта (за вычетом того, что шевелится само) ===\n");
 	auto changed = changedMask(before, after);
 	for (int i = 0; i < D110Core::kRamSize; ++i)
@@ -244,22 +244,22 @@ int main(int argc, char **argv) {
 		if (lo >= 0) std::printf("    (все изменения лежат в 0x%04X..0x%04X)\n", lo, hi);
 	}
 
-	// ---- где банк оказался на самом деле ------------------------------------------------
-	// Разница «до и после» отвечает только на вопрос, ЧТО поменялось, а не ГДЕ лежит банк:
-	// если память и раньше содержала почти те же патчи, совпавшие байты в разницу не
-	// попадут, и целый регион выглядит как горсть мелких участков. Поэтому дальше идёт
-	// прямой поиск: берём из файла начало каждой записи патча и ищем его в ОЗУ. Найденные
-	// смещения сами назовут и базу, и шаг.
+	// ---- where the bank actually ended up ------------------------------------------------
+	// The "before and after" difference only answers WHAT changed, not WHERE the bank lies:
+	// if the memory already held almost the same patches, the matching bytes will not show up
+	// in the difference, and a whole region looks like a handful of small runs. So a direct
+	// search follows: take the start of each patch record from the file and look for it in RAM.
+	// The offsets found will name both the base and the stride themselves.
 	std::printf("\n=== прямой поиск записей банка в памяти прошивки ===\n");
 	juce::MemoryBlock raw;
-	std::vector<std::vector<uint8_t>> records; // по 128 байт на патч
+	std::vector<std::vector<uint8_t>> records; // 128 bytes per patch
 	if (bank.loadFileAsData(raw)) {
 		const auto *p = static_cast<const uint8_t *>(raw.getData());
 		const size_t n = raw.getSize();
 		std::vector<uint8_t> blob;
-		// Ищем подпись «Roland, устройство 17, модель D-110, DT1» и забираем данные без
-		// заголовка, контрольной суммы и F7. Сырой просмотр работает и на .MID, потому что
-		// байты эксклюзива лежат в дорожке подряд.
+		// Look for the signature "Roland, device 17, model D-110, DT1" and take the data without
+		// the header, checksum and F7. A raw scan also works on .MID, because the sysex bytes lie
+		// in the track consecutively.
 		for (size_t i = 0; i + 8 < n; ++i) {
 			if (p[i] == 0x41 && p[i + 1] == 0x10 && p[i + 2] == 0x16 && p[i + 3] == 0x12) {
 				const size_t data = i + 7;
@@ -274,9 +274,9 @@ int main(int argc, char **argv) {
 	if (records.empty()) {
 		std::printf("  не удалось разобрать файл - поиск невозможен\n");
 	} else {
-		// Двадцати четырёх байт достаточно, чтобы совпадение не было случайным: имя плюс
-		// начало параметров. Искать по полным 128 байтам нельзя - прошивка вправе хранить
-		// хвост записи иначе, и тогда не нашлось бы ничего.
+		// Twenty-four bytes are enough for a match not to be accidental: the name plus the
+		// start of the parameters. Searching by the full 128 bytes is not possible - the firmware may store the
+		// record tail differently, and then nothing would be found.
 		constexpr int kNeedle = 24;
 		int found = 0, firstAt = -1, prevAt = -1, stride = -1;
 		bool strideStable = true;

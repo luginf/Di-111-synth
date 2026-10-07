@@ -1,26 +1,26 @@
-// Почему в демо-песне партии 6 и 7 тише на 21-24 дБ и почему партия 5 не получает нот.
+// Why in the demo song parts 6 and 7 are quieter by 21-24 dB and why part 5 gets no notes.
 //
-// Зацепка прошлой сессии: прошивка держит ГРУППУ ТЕМБРА 5 ровно для этих двух партий,
-// тогда как все остальные держат 0 или 1, а движок, происходящий от MT-32, знает только
-// группы 0-3. Здесь вопрос задан в форме, на которую измерение уровня ответить не может,
-// и ответ берётся из ОДНОГО прогона, чтобы ничего не сравнивать между прогонами:
+// A lead from the previous session: the firmware holds TIMBRE GROUP 5 for exactly these two parts,
+// while all the others hold 0 or 1, and the engine, descended from the MT-32, knows only
+// groups 0-3. Here the question is asked in a form a level measurement cannot answer,
+// and the answer comes from ONE run, so that nothing is compared between runs:
 //
-//   Держит ли движок для каждой партии тот тембр, который держит ПРОШИВКА?
+//   Does the engine hold for each part the same timbre that the FIRMWARE holds?
 //
-// Сравнение идёт по ИМЕНИ - первые десять байт тембра это его имя в ASCII, - потому что
-// имя однозначно, а уровень нет. Совпавшие партии доказывают, что метод работает именно
-// на этом прогоне; несовпавшая партия прямо называет звук, который играет по ошибке.
+// The comparison is by NAME - the first ten bytes of a timbre are its ASCII name - because
+// a name is unambiguous and a level is not. Matching parts prove that the method works on
+// this very run; a mismatching part directly names the sound that is wrongly playing.
 //
-// Три прежних инструмента в этом расследовании дали уверенные неверные ответы, поэтому:
-//   * каждая запись, способная переполниться, печатает счётчик потерь, а подсчёты,
-//     которые нельзя обрезать, ведутся счётчиками фиксированного размера
-//     (D110Core::noteOnsForPart и соседние);
-//   * путь чтения из движка доказывается КОНТРОЛЕМ - записали известное значение и
-//     прочитали его обратно - прежде чем верить хоть одному его показанию.
-//     plugin/part_state_compare.cpp читал из движка нули, и никто не мог сказать,
-//     виноват движок или читатель;
-//   * играющая песня печатается в каждом блоке, потому что демо переходит от песни к
-//     песне, а разные песни используют разные партии.
+// The three earlier tools in this investigation gave confident wrong answers, so:
+//   * every record that can overflow prints a loss counter, and counts
+//     that must not be truncated are kept in fixed-size counters
+//     (D110Core::noteOnsForPart and its neighbours);
+//   * the read path from the engine is proven by a CONTROL - write a known value and
+//     read it back - before believing a single one of its readings.
+//     plugin/part_state_compare.cpp read zeros from the engine, and nobody could say
+//     whether the engine or the reader was to blame;
+//   * the playing song is printed in every block, because the demo moves from song to
+//     song, and different songs use different parts.
 #include "Source/PluginProcessor.h"
 
 #include <cmath>
@@ -36,19 +36,19 @@ constexpr int kBlock = 512;
 constexpr double kBlockSeconds = double(kBlock) / kSampleRate;
 using Clock = std::chrono::steady_clock;
 
-// Roland пишет адрес тремя отдельными семибитными байтами, а движок адресует ту же
-// память одним упакованным 21-битным числом. MT32EMU_MEMADDR - это преобразование,
-// повторённое здесь, чтобы инструменту не пришлось тянуть внутренние заголовки движка.
+// Roland writes an address as three separate seven-bit bytes, while the engine addresses the same
+// memory with one packed 21-bit number. MT32EMU_MEMADDR is that conversion,
+// repeated here so the tool does not have to pull in the engine's internal headers.
 constexpr uint32_t packed(uint32_t a) {
 	return ((a & 0x7f0000u) >> 2) | ((a & 0x7f00u) >> 1) | (a & 0x7fu);
 }
-constexpr uint32_t kPatchTempSysex = 0x030000; // "Timbre Temporary" в терминах Roland D-110
-constexpr uint32_t kToneTempSysex = 0x040000;  // "Tone Temporary" - собственно тембр
+constexpr uint32_t kPatchTempSysex = 0x030000; // "Timbre Temporary" in Roland D-110 terms
+constexpr uint32_t kToneTempSysex = 0x040000;  // "Tone Temporary" - the timbre proper
 constexpr uint16_t kPatchTempRam = 0x2000;
 constexpr uint16_t kToneTempRam = 0x21E4;
 constexpr int kToneStride = 246;
 
-// ---- чтение ЖКИ, чтобы песня и индикаторы партий попадали в протокол вместе с цифрами ----
+// ---- LCD readout, so the song and part indicators land in the log together with the numbers ----
 
 std::vector<uint8_t> g_cgrom;
 
@@ -93,12 +93,12 @@ std::string lcdRow(D110AudioProcessor &proc, int row) {
 	return s;
 }
 
-// Печатает верхнюю строку панели точками, по знакоместу на блок. Индикаторы партий - это
-// первые девять знакомест, и означает ли знакоместо "партия играет" или "партия молчит",
-// угадывать нельзя: на этом держится вся жалоба "партия 5 не получает нот, хотя её
-// индикатор горит". Знакоместо, которое знакогенератор назвать не может, - это
-// ПОЛЬЗОВАТЕЛЬСКИЙ символ, а блок активности у Roland именно такой, поэтому на рисунок
-// надо смотреть, а не декодировать его.
+// Prints the top line of the panel as dots, one per character cell. The part indicators are
+// the first nine cells, and whether a cell means "part is playing" or "part is silent"
+// cannot be guessed: the whole complaint "part 5 gets no notes although its
+// indicator is lit" rests on it. A cell the character generator cannot name is a
+// USER-defined character, and Roland's activity block is exactly that, so the picture
+// has to be looked at, not decoded.
 void dumpIndicatorGlyphs(D110AudioProcessor &proc) {
 	uint8_t rows[D110Core::kLcdBytes];
 	if (!proc.getCore().getLcd(rows)) { std::printf("  (no LCD)\n"); return; }
@@ -137,8 +137,8 @@ void render(D110AudioProcessor &proc, double seconds) {
 	}
 }
 
-// Первые десять байт тембра - его имя. Непечатаемые байты показываются как '.', чтобы
-// блок нулей или мусора выглядел как явно не-имя, а не как пустая строка.
+// The first ten bytes of a timbre are its name. Non-printable bytes are shown as '.', so that
+// a block of zeros or garbage looks like an obvious non-name and not like an empty string.
 std::string toneName(const uint8_t *p) {
 	std::string s;
 	for (int i = 0; i < 10; ++i) s.push_back((p[i] >= 0x20 && p[i] < 0x7f) ? char(p[i]) : '.');
@@ -155,11 +155,11 @@ int main() {
 	D110AudioProcessor proc;
 	proc.prepareToPlay(kSampleRate, kBlock);
 	proc.setPoweredOn(true);
-	// СЧИТАЕМ звук, а не спим. Мост ставит в очередь DT1 на каждый зеркалируемый регион,
-	// который меняется, пока прошивка загружается, а разбирает это кольцо только
-	// processBlock. Проспать загрузку - значит оставить весь затор в очереди, и первый же
-	// последующий расчёт звука его проигрывает: именно так была молча затёрта собственная
-	// контрольная запись этого инструмента, и исправный путь чтения выглядел сломанным.
+	// We COUNT sound, not sleep. The bridge queues a DT1 for every mirrored region
+	// that changes while the firmware loads, and this ring is drained only by
+	// processBlock. Sleeping through the load means leaving the whole jam in the queue, and the very first
+	// subsequent sound render plays it back: that is how this tool's own control write was silently
+	// overwritten, and a healthy read path looked broken.
 	render(proc, 9.0);
 	std::printf("firmware running: %s   sound engine open: %s   LCD font: %s\n",
 	            proc.getCore().isRunning() ? "yes" : "NO",
@@ -171,28 +171,28 @@ int main() {
 		return 1;
 	}
 
-	// ---- КОНТРОЛЬ: работает ли вообще путь чтения из движка? ---------------------------
-	// Записали, потом прочитали обратно. Пока это не прошло, ничего прочитанное из движка
-	// не значит ничего - ровно в таком состоянии и остался part_state_compare.cpp.
+	// ---- CONTROL: does the read path from the engine work at all? ---------------------
+	// Write, then read back. Until this passes, nothing read from the engine
+	// means anything - exactly the state part_state_compare.cpp was left in.
 	//
-	// ДВЕ вещи этот контроль поймал с первой же попытки, и обе прочитались бы как находки
-	// про сам D-110:
-	//  1. Synth::playSysex ставит сообщение В ОЧЕРЕДЬ; применяется оно во время расчёта
-	//     звука. Запись и чтение обратно без расчёта между ними читают значение ДО записи.
-	//  2. Мост пересылает весь регион Timbre Temporary всякий раз, когда меняется ОЗУ
-	//     прошивки, и это затирает всё записанное здесь. Поэтому рядом печатается счётчик
-	//     отправок этого региона: неудачное чтение при ненулевом счётчике - это прошивка
-	//     забирает свою память назад, а не сломанный читатель.
+	// This control caught TWO things on the very first attempt, and both would have been read as findings
+	// about the D-110 itself:
+	//  1. Synth::playSysex puts the message IN A QUEUE; it is applied during sound
+	//     rendering. A write and read-back with no rendering between them read the value from BEFORE the write.
+	//  2. The bridge resends the whole Timbre Temporary region every time the firmware's RAM
+	//     changes, and that overwrites everything written here. So the counter of
+	//     sends of this region is printed alongside: a failed read with a non-zero counter means the firmware
+	//     is taking its memory back, not that the reader is broken.
 	{
 		proc.getCore().resetTallies();
-		// Целая 16-байтная запись Timbre Temporary для ритм-партии (индекс 8), которую демо
-		// по этому пути не правит. Значения лежат внутри собственной таблицы максимумов
-		// D-110, поэтому ничего не прижимается и чтение можно сравнивать точно.
+		// A whole 16-byte Timbre Temporary record for the rhythm part (index 8), which the demo
+		// does not edit along this path. The values lie inside the D-110's own table of maxima,
+		// so nothing is clamped and the read can be compared exactly.
 		const uint8_t want[16] = {2, 17, 24, 50, 12, 1, 0, 0, 77, 9, 0, 0, 0, 0, 0, 0};
 		uint8_t msg[32];
 		int n = 0;
 		msg[n++] = 0xF0; msg[n++] = 0x41; msg[n++] = 0x10; msg[n++] = 0x16; msg[n++] = 0x12;
-		const uint32_t addr = kPatchTempSysex + 0x100; // ритм-партия, по карте самой Roland
+		const uint32_t addr = kPatchTempSysex + 0x100; // rhythm part, per Roland's own map
 		const uint8_t a1 = uint8_t((addr >> 16) & 0x7f), a2 = uint8_t((addr >> 8) & 0x7f),
 		              a3 = uint8_t(addr & 0x7f);
 		msg[n++] = a1; msg[n++] = a2; msg[n++] = a3;
@@ -201,7 +201,7 @@ int main() {
 		msg[n++] = uint8_t((128 - (sum & 0x7f)) & 0x7f);
 		msg[n++] = 0xF7;
 		proc.engineWriteSysexForTest(msg, n);
-		render(proc, 0.3); // движок применяет очередь эксклюзивов, пока считает звук
+		render(proc, 0.3); // the engine applies the sysex queue while it renders sound
 
 		uint8_t got[16];
 		std::memset(got, 0xAA, sizeof got);
@@ -216,12 +216,12 @@ int main() {
 		std::printf("  => engine read path %s\n", ok ? "WORKS" : "IS BROKEN - stop here");
 		if (!ok) return 1;
 
-		// Возвращаем собственное состояние прошивки на место до всяких измерений.
+		// Put the firmware's own state back in place before any measurements.
 		proc.getCore().resyncMirror();
 		render(proc, 0.5);
 	}
 
-	// ---- запускаем демо -----------------------------------------------------------------
+	// ---- start the demo -----------------------------------------------------------------
 	proc.getCore().resetTallies();
 	proc.getCore().startNoteLog();
 	press(proc, {D110Core::buttonIndex(1, 7), D110Core::buttonIndex(1, 0)}, 200, 500);
@@ -256,7 +256,7 @@ int main() {
 		dumpIndicatorGlyphs(proc);
 	}
 
-	// ---- подсчёты, которые ничего не могли потерять -------------------------------------
+	// ---- counts that could not have lost anything -------------------------------
 	const auto log = proc.getCore().takeNoteLog();
 	std::printf("\nNotes the firmware started, per part (fixed counters - nothing can be lost):\n");
 	std::printf("  part | note-ons | writes to the part byte naming this part\n");

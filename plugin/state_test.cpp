@@ -201,7 +201,7 @@ int main() {
 			proc.getCore().setCardImage(mark.data());
 			proc.getCore().setCardInserted(true);
 			std::this_thread::sleep_for(std::chrono::seconds(1));
-			proc.getCore().setCardInserted(false);   // вынули и так и сохранили
+			proc.getCore().setCardInserted(false);   // ejected and saved that way
 			proc.getCore().setCardWriteProtect(true);
 			std::this_thread::sleep_for(std::chrono::seconds(1));
 			proc.getStateInformation(state);

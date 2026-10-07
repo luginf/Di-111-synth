@@ -1,19 +1,19 @@
-// Заливка банка тонов в настоящую батарейную память прибора - и подтверждение, что он
-// вправду туда лёг.
+// Loading a tone bank into the unit's real battery-backed memory - and confirming that it
+// really landed there.
 //
-// Нужен потому, что внутренняя память тонов у D-110 с завода ПУСТА и заводским сбросом не
-// наполняется (проверено: после сброса в 0x4000 по-прежнему ноль ненулевых байт из 16384).
-// Значит после аварии, обнулившей НВР, вернуть банк нечем: nvram_recovery.cpp чинит
-// системную область и патчи, а тоны восстановить не может - их там никогда и не было.
+// Needed because the D-110's internal tone memory is EMPTY from the factory and is not filled by a factory reset
+// (verified: after a reset 0x4000 still has zero non-zero bytes out of 16384).
+// So after a crash that zeroed the NVRAM there is nothing to restore the bank from: nvram_recovery.cpp repairs the
+// system area and patches, but cannot restore tones - they were never there.
 //
-// Идёт ТЕМ ЖЕ ПУТЁМ, что и плагин: D110AudioProcessor::importSysexBank() складывает
-// сообщения в очередь, а processBlock выдаёт их и в звуковой движок, и в плату управления
-// через core.pushMidi(). Своей реализации разбора SysEx здесь нет намеренно - иначе
-// инструмент проверял бы себя, а не плагин.
+// It goes THE SAME WAY as the plugin: D110AudioProcessor::importSysexBank() puts
+// the messages in a queue, and processBlock delivers them both to the sound engine and to the control board
+// through core.pushMidi(). There is deliberately no SysEx parsing of its own here - otherwise the
+// tool would be testing itself, not the plugin.
 //
-// Путь к файлу берётся из аргумента и ТОЛЬКО из него. Имена папок в коллекции содержат
-// неразрывный дефис (U+2011), который не переживает передачу через системную кодировку, -
-// поэтому файл надо сперва скопировать по пути из обычных знаков и указать этот путь.
+// The file path comes from the argument and ONLY from it. Folder names in the collection contain a
+// non-breaking hyphen (U+2011), which does not survive passing through the system encoding,
+// so the file must first be copied to a path of ordinary characters and that path given.
 #include "Source/PluginProcessor.h"
 
 #include <cstdio>
@@ -24,9 +24,9 @@ namespace {
 constexpr double kSampleRate = 44100.0;
 constexpr int kBlock = 512;
 
-// Ждать надо по часам и обязательно крутить processBlock: очередь импорта разбирает именно
-// он, и никто больше. Счёт итераций тут дал бы ложное "не долетело" - сорок тысяч оборотов
-// проходят за секунды, а кабель отдаёт свои 3125 байт в секунду и ни байтом быстрее.
+// Waiting must be by the clock and processBlock must be run: the import queue is drained by
+// it and nobody else. Counting iterations here would give a false "did not arrive" - forty thousand turns
+// pass in seconds, while the cable delivers its 3125 bytes per second and not a byte faster.
 void render(D110AudioProcessor &proc, double seconds) {
 	juce::AudioBuffer<float> buffer(2, kBlock);
 	const int blocks = int(seconds * kSampleRate / kBlock);
@@ -38,8 +38,8 @@ void render(D110AudioProcessor &proc, double seconds) {
 	}
 }
 
-// Сколько ненулевых байт в памяти тонов. Мера грубая и выбрана нарочно: она не зависит ни
-// от одной догадки о раскладке записи, поэтому "ноль" от "не ноль" различает честно.
+// How many non-zero bytes are in tone memory. The measure is crude and chosen on purpose: it depends on not a
+// single guess about the record layout, so it tells "zero" from "not zero" honestly.
 int toneBytes(D110AudioProcessor &proc) {
 	std::vector<uint8_t> ram(D110Core::kRamSize, 0);
 	if (!proc.getCore().getRam(ram.data())) return -1;
@@ -98,9 +98,9 @@ int main(int argc, char **argv) {
 	proc.importSysexBank(bank);
 	std::printf("%s\n", proc.getLastImportMessage().toRawUTF8());
 
-	// С запасом к расчётному времени кабеля: очередь разбирается по блоку за раз, и прошивке
-	// нужно ещё успеть разложить принятое по своим банкам. Замеряется всё равно результатом
-	// ниже, а не этим сроком.
+	// With a margin over the computed cable time: the queue is drained one block at a time, and the firmware
+	// still needs time to lay out what it received into its banks. The result below is what is actually
+	// measured, not this deadline.
 	std::printf("\nотдаю по кабелю на скорости MIDI...\n");
 	render(proc, 25.0);
 
@@ -109,15 +109,15 @@ int main(int argc, char **argv) {
 	            after, D110Core::kRamSize - D110Core::kRamTones);
 	if (after > 0) printNames(proc, 6);
 
-	// Выключение - единственный момент, когда MAME пишет НВР на диск. Без него всё
-	// залитое осталось бы только в памяти процесса.
+	// Power-off is the only moment when MAME writes the NVRAM to disk. Without it everything
+	// loaded would remain only in the process's memory.
 	std::printf("\nвыключаю (это и есть момент записи на диск)...\n");
 	proc.setPoweredOn(false);
 	proc.releaseResources();
 
-	// Независимая проверка: файл перечитывается с диска СВОИМИ силами, не через плагин.
-	// Иначе подтверждением служил бы тот же код, который только что писал, - и обнуление,
-	// случившееся при записи, осталось бы незамеченным ровно так же, как в прошлый раз.
+	// Independent check: the file is re-read from disk by our OWN means, not through the plugin.
+	// Otherwise the confirmation would be the same code that just wrote it - and a zeroing
+	// that happened during the write would go unnoticed exactly as it did last time.
 	const juce::File rams = D110AudioProcessor::getNvramRoot().getChildFile("d110").getChildFile("rams");
 	juce::MemoryBlock raw;
 	if (!rams.loadFileAsData(raw) || raw.getSize() < (size_t)D110Core::kRamSize) {

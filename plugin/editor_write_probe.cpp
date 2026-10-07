@@ -1,28 +1,27 @@
-// Доходит ли ПРАВКА, посланная эксклюзивным сообщением, до самой прошивки - и куда именно
-// она ложится в её памяти.
+// Whether an EDIT sent as a system exclusive message reaches the firmware itself - and where
+// exactly it lands in its memory.
 //
-// Зеркало (D110Core::emitRegionSysex) до сих пор работало в одну сторону: прошивка правит
-// свою память, мост несёт это в звуковой движок. Расширенный редактор идёт в другую
-// сторону - он посылает Roland DT1 в MIDI IN прошивки, ровно как это делает внешний
-// библиотекарь с настоящим прибором, - и ни одного измерения этого пути ещё не было.
-// Отсюда три вопроса, и на каждый нужен ответ, умеющий показать отказ:
+// The mirror (D110Core::emitRegionSysex) has so far worked in one direction: the firmware
+// edits its own memory, the bridge carries that to the sound engine. The extended editor goes
+// the other way - it sends Roland DT1 into the firmware's MIDI IN, exactly as an external
+// librarian does with a real unit - and there has been no measurement of this path yet.
+// Hence three questions, and each needs an answer capable of showing a failure:
 //
-//   1. Принимает ли прошивка DT1 вообще и в те ли байты кладёт? Проверяется по ВРЕМЕННЫМ
-//      областям, чьи адреса в ОЗУ уже измерены другими зондами: попадание в известный
-//      байт - это одновременно и результат, и его контроль.
-//   2. Принимает ли она запись в память патчей, тембров и тонов, или это запрещает
-//      Mem Protect (заводское значение - ON)? Ответ решает, что редактору вообще можно
-//      предлагать.
-//   3. Где в ОЗУ лежит память ТОНОВ? Единственная область карты Roland, чьё место не
-//      измерено: верхние 16 КБ ОЗУ в заводском состоянии сплошь нули, и по содержимому её
-//      не найти. Зато можно записать туда имя и посмотреть, какие байты сдвинулись.
+//   1. Does the firmware accept DT1 at all and put it in the right bytes? Checked against
+//      TEMPORARY areas whose RAM addresses were already measured by other probes: a hit on a
+//      known byte is both the result and its control.
+//   2. Does it accept writes to patch, timbre and tone memory, or does Mem Protect forbid
+//      that (factory value - ON)? The answer decides what the editor may offer at all.
+//   3. Where in RAM does TONE memory live? The only area of the Roland map whose location is
+//      not measured: the upper 16 KB of RAM in the factory state is all zeros, and it cannot
+//      be found by content. But a name can be written there and the moved bytes observed.
 //
-// И заодно четвёртый, уже про удобство: каким байтом прошивка помнит НОМЕР ТЕКУЩЕГО ПАТЧА,
-// чтобы редактор мог переходить на нужный патч кнопками самой панели, а не выдумывать
-// смену патча сам.
+// And incidentally a fourth, about convenience: which byte the firmware remembers the
+// CURRENT PATCH NUMBER in, so the editor can switch to the needed patch with the panel's own
+// buttons instead of inventing a patch change itself.
 //
-// В конце прогона делается заводской сброс: зонд пишет в настоящую батарейную память
-// прибора, общую с плагином, и оставлять в ней свои метки нельзя.
+// At the end of the run a factory reset is done: the probe writes into the unit's real
+// battery memory, shared with the plugin, and its marks must not be left there.
 #include "Source/PluginProcessor.h"
 
 #include <cstdio>
@@ -127,9 +126,9 @@ std::vector<uint8_t> snapshot(D110AudioProcessor &proc) {
 	return v;
 }
 
-// Байты, которые действительно изменились. Рабочие области прошивки (0x2Dxx выше системной,
-// 0x36xx - буфер экрана, 0x39xx) шевелятся сами по себе между любыми двумя снимками,
-// поэтому они печатаются отдельно от попаданий в ожидаемое место, а не вперемешку.
+// The bytes that really changed. Firmware work areas (0x2Dxx above the system area,
+// 0x36xx - screen buffer, 0x39xx) move on their own between any two snapshots, so they are
+// printed separately from hits on the expected place, not mixed in.
 struct Diff {
 	std::vector<int> at;
 	bool hit = false;
@@ -158,21 +157,21 @@ Diff reportDiff(const std::vector<uint8_t> &before, const std::vector<uint8_t> &
 	return d;
 }
 
-// Одна правка эксклюзивным сообщением - ровно так, как её будет посылать редактор.
+// One edit by exclusive message - exactly as the editor will send it.
 void sendDt1(D110AudioProcessor &proc, uint32_t address, int offset, const uint8_t *data,
              int length) {
 	uint8_t msg[D110Core::kMaxSysexBytes];
 	const int n = D110Core::buildDt1Message(address, offset, data, length, msg);
 	if (n <= 0) { std::printf("    !!! сообщение не построено\n"); return; }
 	proc.getCore().pushMidi(msg, n);
-	render(proc, 1.2);   // байты идут со скоростью MIDI, прошивке нужно их разобрать
+	render(proc, 1.2);   // bytes arrive at MIDI speed, the firmware needs time to parse them
 }
 
 void sendByte(D110AudioProcessor &proc, uint32_t address, int offset, uint8_t value) {
 	sendDt1(proc, address, offset, &value, 1);
 }
 
-// Проверка одной области: снимок, посылка, снимок, отчёт.
+// Checking one area: snapshot, send, snapshot, report.
 bool checkWrite(D110AudioProcessor &proc, const char *what, uint32_t address, int offset,
                 const uint8_t *data, int length, int expectedRam) {
 	std::printf("\n  %s   адрес %02X %02X %02X + %d\n", what, (address >> 16) & 0x7f,
@@ -203,12 +202,12 @@ int main() {
 	press(proc, "Exit", 2);
 	std::printf("экран: \"%s\"\n", screen(proc).c_str());
 
-	// --- 1. временные области: адреса известны, значит это контроль ------------
+	// --- 1. temporary areas: addresses are known, so this is the control ------------
 	std::printf("\n=== 1. ВРЕМЕННЫЕ ОБЛАСТИ (адреса в ОЗУ уже измерены) ===\n");
 
 	int passed = 0, total = 0;
 
-	// Timbre Temporary, партия 3, громкость. 0x2000 + 2*16 + 8.
+	// Timbre Temporary, part 3, volume. 0x2000 + 2*16 + 8.
 	{
 		const uint8_t v = 0x55;
 		++total;
@@ -218,7 +217,7 @@ int main() {
 			++passed;
 	}
 
-	// Tone Temporary, партия 2, имя. 0x21E4 + 246.
+	// Tone Temporary, part 2, name. 0x21E4 + 246.
 	{
 		const uint8_t name[10] = { 'P','R','O','B','E','T','O','N','E','2' };
 		++total;
@@ -228,7 +227,7 @@ int main() {
 			++passed;
 	}
 
-	// Rhythm Setup, шестнадцатая запись, громкость. 0x2090 + 16*4 + 1.
+	// Rhythm Setup, sixteenth entry, volume. 0x2090 + 16*4 + 1.
 	{
 		const uint8_t v = 0x40;
 		++total;
@@ -238,7 +237,7 @@ int main() {
 			++passed;
 	}
 
-	// System Area, резерв партиалов партии 1. 0x2D94 + 4.
+	// System Area, partial reserve of part 1. 0x2D94 + 4.
 	{
 		const uint8_t v = 3;
 		++total;
@@ -247,11 +246,11 @@ int main() {
 			++passed;
 	}
 
-	// --- 2. память: её может запрещать Mem Protect ---------------------------
+	// --- 2. memory: it may be forbidden by Mem Protect ---------------------------
 	std::printf("\n=== 2. ПАМЯТЬ ПАТЧЕЙ И ТЕМБРОВ (Mem Protect заводски ON) ===\n");
 
-	// Timbre Memory, ячейка 6, Key Shift. 0x2994 + 5*8 + 2. Место измерено содержимым:
-	// 128 записей по 8 байт, ровно между Tone Temporary и системной областью.
+	// Timbre Memory, cell 6, Key Shift. 0x2994 + 5*8 + 2. The place was measured by content:
+	// 128 records of 8 bytes, exactly between Tone Temporary and the system area.
 	{
 		const uint8_t v = 30;
 		++total;
@@ -261,7 +260,7 @@ int main() {
 			++passed;
 	}
 
-	// Patch Memory, патч 4, имя. 0x0000 + 3*128.
+	// Patch Memory, patch 4, name. 0x0000 + 3*128.
 	{
 		const uint8_t name[10] = { 'P','R','O','B','E',' ',' ',' ','0','4' };
 		++total;
@@ -271,15 +270,15 @@ int main() {
 			++passed;
 	}
 
-	// --- 3. память тонов: место НЕ известно, его и ищем ----------------------
+	// --- 3. tone memory: the place is NOT known, that is what is searched for ----------
 	//
-	// Единственная область карты Roland, которую нельзя найти по содержимому: в заводском
-	// приборе она пуста, и верхние 16 КБ ОЗУ - сплошные нули. Поэтому она ищется записью:
-	// два тона, разнесённые на две записи, и место обоих измеряется, а не предполагается.
+	// The only area of the Roland map that cannot be found by content: in a factory unit
+	// it is empty, and the upper 16 KB of RAM are solid zeros. So it is searched for by writing:
+	// two tones, two records apart, and the place of both is measured, not assumed.
 	//
-	// Искать надо ВСЕ вхождения, а не первое: пришедшее сообщение лежит ещё и в приёмном
-	// буфере прошивки (0x39xx-0x3Axx), и первое совпадение - всегда он. Первая версия
-	// этого зонда попалась именно на этом и объявила базой адрес буфера.
+	// ALL occurrences must be searched, not the first: the incoming message also lies in the
+	// firmware's receive buffer (0x39xx-0x3Axx), and the first match is always that. The first
+	// version of this probe fell into exactly that and declared the buffer address the base.
 	std::printf("\n=== 3. ПАМЯТЬ ТОНОВ: куда она ляжет? ===\n");
 	{
 		auto findAll = [](const std::vector<uint8_t> &ram, const uint8_t *pat, int len) {
@@ -300,8 +299,8 @@ int main() {
 			std::printf("    PROBETONE1 в ОЗУ по 0x%04X%s\n", h,
 			            (h >= 0x3900 && h < 0x3C00) ? "   (приёмный буфер прошивки)" : "");
 
-		// Вторая запись, через тон: если у обеих разница ровно 512 байт, это массив с шагом
-		// 256, то есть память тонов, а не случайное совпадение.
+		// Second write, via a tone: if both differ by exactly 512 bytes, it is an array with a
+		// stride of 256, i.e. tone memory, not a coincidence.
 		const uint8_t name2[10] = { 'P','R','O','B','E','T','O','N','E','3' };
 		std::printf("\n  Tone Memory 3, имя = PROBETONE3   адрес 08 04 00\n");
 		sendDt1(proc, D110Core::kSysexTones, 2 * 256, name2, 10);
@@ -324,28 +323,27 @@ int main() {
 			            "запись в неё не принимается\n");
 	}
 
-	// --- 5. как прибор НАЗЫВАЕТ четыре группы тонов --------------------------
+	// --- 5. what the unit CALLS the four tone groups --------------------------
 	//
-	// В записи тембра группа - это число 0..3, и звуковой движок понимает их как свои
-	// четыре банка (A, B, Memory, Rhythm). Но подписи в редакторе должны быть теми, что
-	// показывает сам прибор, а не одолженными у MT-32, - поэтому они не угадываются, а
-	// снимаются с индикатора: группа партии 1 ставится эксклюзивным сообщением, экран
-	// читается.
+	// In a timbre record the group is a number 0..3, and the sound engine understands them as
+	// its own four banks (A, B, Memory, Rhythm). But the labels in the editor must be those the
+	// unit itself shows, not borrowed from the MT-32, - so they are not guessed but read off
+	// the display: the group of part 1 is set by exclusive message, the screen is read.
 	std::printf("\n=== 5. ИМЕНА ЧЕТЫРЁХ ГРУПП ТОНОВ, снятые с индикатора ===\n");
 	{
 		press(proc, "Exit", 2);
-		press(proc, "Timbre");   // экран, где видно группу и номер тембра партии
+		press(proc, "Timbre");   // screen showing the group and timbre number of part 1
 		render(proc, 0.6);
 		std::printf("  экран после Timbre: \"%s\"\n", screen(proc).c_str());
 		for (int group = 0; group < 4; ++group) {
-			sendByte(proc, D110Core::kSysexTimbreTemp, 0, uint8_t(group));   // партия 1, группа
-			sendByte(proc, D110Core::kSysexTimbreTemp, 1, 0);                // и номер 1
+			sendByte(proc, D110Core::kSysexTimbreTemp, 0, uint8_t(group));   // part 1, group
+			sendByte(proc, D110Core::kSysexTimbreTemp, 1, 0);                // and number 1
 			render(proc, 0.8);
 			std::printf("    группа %d -> \"%s\"\n", group, screen(proc).c_str());
 		}
 	}
 
-	// --- 4. чем прошивка помнит номер текущего патча -------------------------
+	// --- 4. which byte the firmware remembers the current patch number in -------------
 	std::printf("\n=== 4. НОМЕР ТЕКУЩЕГО ПАТЧА: каким байтом? ===\n");
 	{
 		press(proc, "Exit", 2);
@@ -367,8 +365,8 @@ int main() {
 			std::printf("   0x%04X %d->%d", exact[i], before[exact[i]], after[exact[i]]);
 		std::printf("\n");
 
-		// Bank+ на D-110 листает патчи восьмёрками - если это так, тот же байт сдвинется
-		// на 8, и тогда до любого из 64 патчей не больше восьми нажатий.
+		// Bank+ on the D-110 pages through patches by eights - if so, the same byte moves by 8,
+		// and then any of the 64 patches is at most eight presses away.
 		const auto beforeBank = snapshot(proc);
 		press(proc, "Bank+", 1);
 		render(proc, 0.8);
@@ -379,12 +377,12 @@ int main() {
 			            int(afterBank[i]) - int(beforeBank[i]));
 	}
 
-	// --- 6. что прибор ПИШЕТ НА ЭКРАНЕ про общую подстройку -------------------
+	// --- 6. what the unit WRITES ON THE SCREEN about master tune -------------------
 	//
-	// Байт заводской подстройки - 0x4A = 74, а на экране прибора стоит 442. Документированная
-	// Roland шкала 0..127 -> 432.1..457.6 Гц даёт для 74 около 447, то есть расходится с
-	// прибором (потому эта величина и не переносится в звуковой движок). Значит шкалу надо не
-	// вычислять, а СНЯТЬ: подстройка ставится эксклюзивным сообщением, экран читается.
+	// The factory tune byte is 0x4A = 74, while the unit's screen shows 442. The scale
+	// documented by Roland, 0..127 -> 432.1..457.6 Hz, gives about 447 for 74, i.e. disagrees
+	// with the unit (which is why this value is not carried into the sound engine). So the scale
+	// must not be computed but READ OFF: tune is set by exclusive message, the screen is read.
 	std::printf("\n=== 6. ШКАЛА ОБЩЕЙ ПОДСТРОЙКИ, снятая с индикатора ===\n");
 	{
 		press(proc, "Exit", 2);
@@ -396,30 +394,30 @@ int main() {
 			render(proc, 1.0);
 			std::printf("    байт %3d -> \"%s\"\n", v, screen(proc).c_str());
 		}
-		sendByte(proc, D110Core::kSysexSystem, 0, 0x4A);   // вернуть заводское
+		sendByte(proc, D110Core::kSysexSystem, 0, 0x4A);   // restore the factory value
 		render(proc, 0.8);
 	}
 
-	// Две ячейки памяти тонов, которые зонд подписал своими именами, возвращаются в исходный
-	// вид: заводской сброс их НЕ трогает - это видно по тому, что после сброса они остались
-	// подписанными, - а оставлять свои метки в памяти прибора нельзя.
+	// Two tone memory cells that the probe labelled with its own names are returned to their
+	// original state: a factory reset does NOT touch them - visible from the fact that after the
+	// reset they stayed labelled - and the probe's marks must not be left in the unit's memory.
 	{
 		const uint8_t blank[10] = {};
 		sendDt1(proc, D110Core::kSysexTones, 0, blank, 10);
 		sendDt1(proc, D110Core::kSysexTones, 2 * 256, blank, 10);
 	}
 
-	// --- 7. что за байт прибор называет Output Assign -------------------------
+	// --- 7. what byte the unit calls Output Assign -------------------------
 	//
-	// У MT-32 шестой байт записи партии - Reverb Switch, и подписи редактора были взяты
-	// оттуда. Но на ламинированной карточке D-110 (Play Mode, страница Timbre Edit) стоит
-	// не он, а Output Assign - назначение на индивидуальные выходы, которых у MT-32 нет
-	// вовсе. Заводские значения не решают спора: байт 6 равен 1 (это и «реверберация
-	// включена», и «выход 1»), байт 7 равен 0.
+	// On the MT-32 the sixth byte of a part record is Reverb Switch, and the editor's labels
+	// were taken from there. But on the laminated D-110 card (Play Mode, Timbre Edit page) it is
+	// not that but Output Assign - assignment to the individual outputs, which the MT-32 does not
+	// have at all. Factory values do not settle the dispute: byte 6 is 1 (both "reverb on" and
+	// "output 1"), byte 7 is 0.
 	//
-	// Поэтому спрашиваем прибор: доходим до страницы Output Assign и листаем значение,
-	// глядя, какой байт двигается и до какого предела он доходит. Предел и решает - у
-	// выключателя два положения, у назначения выходов девять.
+	// So we ask the unit: reach the Output Assign page and page the value, watching which byte
+	// moves and what limit it reaches. The limit decides - a switch has two positions, an output
+	// assignment nine.
 	std::printf("\n=== 7. OUTPUT ASSIGN: КАКОЙ ЭТО БАЙТ И КАКОВ ЕГО ПРЕДЕЛ ===\n");
 	{
 		press(proc, "Exit", 2);
@@ -429,9 +427,9 @@ int main() {
 		render(proc, 0.8);
 		std::printf("  Timbre Edit: \"%s\"\n", screen(proc).c_str());
 
-		// Страницы листает Group+, и их порядок с карточки: Tone Select, Key Shift, Fine
-		// Tune, Bender Range, Assign Mode, Output Assign. Порядок не берётся на веру - экран
-		// печатается на каждом шаге.
+		// Pages are paged by Group+, and their order is from the card: Tone Select, Key Shift, Fine
+		// Tune, Bender Range, Assign Mode, Output Assign. The order is not taken on trust - the
+		// screen is printed at each step.
 		for (int page = 1; page <= 5; ++page) {
 			press(proc, "Group+");
 			render(proc, 0.5);
@@ -455,8 +453,8 @@ int main() {
 				std::printf("    сдвиг ровно на %d: 0x%04X  %d -> %d\n", kPresses, i,
 				            before[i], after[i]);
 
-		// До упора: сколько всего у этого параметра положений. Двадцать нажатий заведомо
-		// больше любого из двух предполагаемых пределов.
+		// To the stop: how many positions this parameter has in all. Twenty presses is certainly
+		// more than either of the two supposed limits.
 		press(proc, "Number+", 20);
 		render(proc, 1.0);
 		const auto atTop = snapshot(proc);
@@ -466,7 +464,7 @@ int main() {
 
 	std::printf("\n=== ИТОГ: %d из %d записей дошли ===\n", passed, total);
 
-	// Зонд писал в настоящую батарейную память прибора, общую с плагином. Убираем за собой.
+	// The probe wrote into the unit's real battery memory, shared with the plugin. Cleaning up.
 	std::printf("\nзаводской сброс, чтобы не оставлять свои метки в памяти прибора...\n");
 	proc.getCore().factoryReset();
 	render(proc, 3.0);

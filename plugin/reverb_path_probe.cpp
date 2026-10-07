@@ -1,17 +1,17 @@
-// Каким путём тип, время и уровень ревербератора доходят до микросхемы BOSS.
+// By what path the reverb type, time and level reach the BOSS chip.
 //
-// Это надо знать в любом случае - и чтобы когда-нибудь эмулировать саму микросхему, и
-// чтобы просто перенести настройки на существующий ревербератор движка. Вопрос поставлен
-// измерением, потому что разбор MAME даёт противоречие: `so_w` отводит под номер программы
-// ревербератора ДВА бита (A13/A14 ПЗУ микросхемы, всего четыре программы), а панель, по
-// снятым с экрана значениям (docs/factory_defaults.md), предлагает восемь типов плюс OFF.
-// Значит либо тип не равен программе, либо остальное уходит куда-то ещё - например на
-// аналоговую плату, на что намекает подпись бита 3 "R. SW. to analog board".
+// This has to be known in any case - both to emulate the chip itself someday, and
+// to simply carry the settings over to the engine's existing reverb. The question is settled
+// by measurement, because reading MAME gives a contradiction: `so_w` allots TWO bits to the reverb
+// program number (A13/A14 of the chip's ROM, four programs in all), while the panel, going by
+// values read off the screen (docs/factory_defaults.md), offers eight types plus OFF.
+// So either the type is not the same as the program, or the rest goes somewhere else - for example to
+// the analog board, as the label of bit 3 "R. SW. to analog board" hints.
 //
-// Зонд ничего не предполагает о раскладке меню: он жмёт кнопки и ПЕЧАТАЕТ ЭКРАН после
-// каждого шага, а затем на найденной странице листает значение и показывает три вещи
-// рядом - что на экране, какие байты ОЗУ сдвинулись ровно на число нажатий, и что в это
-// время записалось в регистр SO.
+// The probe assumes nothing about the menu layout: it presses buttons and PRINTS THE SCREEN after
+// every step, and then on the page it finds it pages through the value and shows three things
+// side by side - what is on screen, which RAM bytes moved by exactly the number of presses, and what was
+// written to the SO register meanwhile.
 #include "Source/PluginProcessor.h"
 
 #include <cmath>
@@ -116,9 +116,9 @@ std::vector<uint8_t> snapshot(D110AudioProcessor &proc) {
 	return v;
 }
 
-// Байты, сдвинувшиеся ровно на число нажатий, - подпись правимого параметра. Печатаются и
-// все прочие изменившиеся байты, но отдельно: экранный буфер прошивки меняется вместе с
-// параметром, и спутать одно с другим ничего не стоит.
+// Bytes that moved by exactly the number of presses are the signature of the parameter being edited. All other
+// changed bytes are printed too, but separately: the firmware's screen buffer changes along with
+// the parameter, and mistaking one for the other is easy.
 void reportRamDelta(const std::vector<uint8_t> &before, const std::vector<uint8_t> &after,
                     int presses) {
 	std::vector<int> exact, other;
@@ -165,9 +165,9 @@ int main() {
 	            proc.getCore().isRunning() ? "работает" : "НЕТ",
 	            g_cgrom.empty() ? "НЕ НАЙДЕН" : "загружен");
 
-	// Заводской сброс в НАЧАЛЕ прогона. Иначе зонд наследует память от предыдущего
-	// запуска, параметр может уже стоять на упоре, и "значение не изменилось" не значит
-	// ничего. Он же чинит имя патча, если прошлый прогон в него что-то вписал.
+	// Factory reset at the START of the run. Otherwise the probe inherits memory from the previous
+	// run, the parameter may already sit at its stop, and "the value did not change" means
+	// nothing. It also repairs the patch name if the previous run wrote something into it.
 	std::printf("\nзаводской сброс...\n");
 	proc.getCore().factoryReset();
 	render(proc, 3.0);
@@ -176,9 +176,9 @@ int main() {
 	press(proc, "Exit", 2);
 	std::printf("исходный экран: \"%s\"\n", screen(proc).c_str());
 
-	// КОНТРОЛЬ на регистр SO. "Ни одной записи" - отрицательный результат, и верить ему
-	// нельзя, пока тот же счётчик не покажет записи там, где они заведомо есть. Лампа
-	// MIDI - это бит 0 того же регистра, и она работает, значит записи существуют.
+	// CONTROL on the SO register. "Not a single write" is a negative result, and it cannot be trusted
+	// until the same counter shows writes where they certainly exist. The MIDI
+	// lamp is bit 0 of the same register, and it works, so the writes exist.
 	std::printf("\n=== контроль: пишется ли SO вообще ===\n");
 	reportSo(proc);
 
@@ -188,10 +188,10 @@ int main() {
 	press(proc, "Edit");
 	std::printf("  после Edit : \"%s\"\n", screen(proc).c_str());
 
-	// Group+ переводит с параметра на параметр (Name, Reverb Type, Reverb Time,
-	// Reverb Level - снято с экрана предыдущим прогоном), значение меняет Number+.
-	// Bank+ здесь двигает курсор внутри имени, а не листает страницы: первый вариант
-	// этого зонда думал иначе и вместо параметров правил имя патча.
+	// Group+ moves from parameter to parameter (Name, Reverb Type, Reverb Time,
+	// Reverb Level - read off the screen by the previous run), and Number+ changes the value.
+	// Bank+ here moves the cursor inside the name, and does not page through pages: the first version of
+	// this probe thought otherwise and edited the patch name instead of the parameters.
 	constexpr int kPresses = 3;
 	static const char *kParamName[] = {"Name", "Reverb Type", "Reverb Time", "Reverb Level"};
 	for (int page = 0; page < 4; ++page) {
@@ -208,8 +208,8 @@ int main() {
 		press(proc, "Group+");
 	}
 
-	// Второй контроль, и он же настоящий вопрос: перепрограммируется ли микросхема при
-	// СМЕНЕ ПАТЧА, когда весь набор настроек ревербератора меняется разом.
+	// Second control, and also the real question: is the chip reprogrammed on a
+	// PATCH CHANGE, when the whole set of reverb settings changes at once.
 	std::printf("\n=== смена патча целиком ===\n");
 	press(proc, "Exit", 2);
 	press(proc, "Patch");
@@ -222,8 +222,8 @@ int main() {
 	reportRamDelta(ramBefore, ramAfter, 4);
 	reportSo(proc);
 
-	// Доехали ли время и уровень до движка. Путь чтения тот же, что доказан контролем
-	// "записал и прочитал обратно" в d110_tone_clobber.
+	// Did time and level reach the engine. The read path is the same as the one proven by the control
+	// "wrote and read back" in d110_tone_clobber.
 	std::printf("\n=== доехали ли время и уровень до движка ===\n");
 	{
 		const auto ram = snapshot(proc);
@@ -240,9 +240,9 @@ int main() {
 		            eng[3] == ram[0x2D97] ? "СОВПАЛО" : "РАСХОДИТСЯ");
 	}
 
-	// И слышно ли это. Уровень ставится с панели в 0 и в 7, и на каждом измеряется ХВОСТ
-	// после снятия ноты - то, что ревербератор и добавляет. Общий уровень не годится:
-	// сама нота заглушила бы разницу.
+	// And is it audible. The level is set from the panel to 0 and to 7, and on each the TAIL
+	// after note-off is measured - which is what the reverb adds. The overall level will not do:
+	// the note itself would mask the difference.
 	std::printf("\n=== слышна ли разница по хвосту ===\n");
 	press(proc, "Exit", 2);
 	press(proc, "Patch");

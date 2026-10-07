@@ -33,11 +33,11 @@ struct RenderResult {
 	juce::AudioBuffer<float> audio;
 	float peak = 0;
 	double rms = 0;
-	// Сколько отсчётов вышло за полную шкалу и насколько. Одного пикового числа мало:
-	// «пик 1.17» одинаково описывает и десяток отсчётов на всю песню, которые ЦАП прибора
-	// просто срезал бы неслышно, и постоянную работу в ограничении, где срез слышен.
-	// Решение, ограничивать ли выход, принимается по доле, а не по пику.
-	int64_t overFullScale = 0, totalSamples = 0;
+			// How many samples went past full scale and by how much. A single peak number is not
+			// enough: "peak 1.17" describes equally a dozen samples over the whole song, which the
+			// instrument's DAC would clip inaudibly, and constant work in limiting, where the clip
+			// is audible. The decision whether to limit the output is made by the share, not the
+			// peak.
 	double overFraction() const {
 		return totalSamples ? double(overFullScale) / double(totalSamples) : 0.0;
 	}

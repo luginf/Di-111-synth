@@ -1,24 +1,23 @@
-// Переживает ли ПРАВКА ТЕМБРА смену параметра Timbre - на обычном патче, а не на демо.
+// Whether a TIMBRE EDIT survives a change of the Timbre parameter - on an ordinary patch, not on the demo.
 //
-// Исправление MirrorRegion::reassertAfterTimbreTemp было найдено и измерено на демо-песне,
-// где партии 6 и 7 несли группу тембра 5 и звучали закрытым хай-хэтом. Демо - случай
-// особенный: группу 5 сама панель выставить не даёт, её туда положило ПЗУ пресетов. Отсюда
-// вопрос, на который демо ответить не может: а на обычном патче, который правит человек с
-// панели, тембр тоже уцелеет, когда следом сдвинется параметр партии?
+// The MirrorRegion::reassertAfterTimbreTemp fix was found and measured on the demo song,
+// where parts 6 and 7 carried timbre group 5 and sounded as a closed hi-hat. The demo is a
+// special case: the panel itself does not let group 5 be set, the presets ROM put it there.
+// Hence a question the demo cannot answer: on an ordinary patch, edited by a person from the
+// panel, does the timbre also survive when a part parameter is shifted next?
 //
-// Порядок здесь такой же, каким решались предыдущие вопросы этого проекта:
+// The order here is the same as in which the earlier questions of this project were settled:
 //
-//  * КОНТРОЛЬ ПЕРЕД ИЗМЕРЕНИЕМ. Путь чтения из движка доказывается записью известного
-//    значения и чтением его обратно. Пока это не прошло, ни одно показание движка не
-//    значит ничего.
-//  * КОНТРОЛЬ, УМЕЮЩИЙ ПОКАЗАТЬ ОТКАЗ. Опыт идёт ДВАЖДЫ в одном прогоне - с
-//    подтверждением тембров и без него (D110Core::setToneReassert). Проверка, которая
-//    умеет напечатать только "уцелел", выглядит одинаково и когда исправление работает, и
-//    когда затирать было нечему. Настоящий ответ дают два прогона рядом.
-//  * НИЧЕГО НЕ ПРЕДПОЛАГАТЬ О МЕНЮ. Страницы правки ищутся нажатиями: жмём значение и
-//    смотрим, какие байты ОЗУ сдвинулись ровно на число нажатий. Страница, сдвинувшая
-//    байт внутри окна тембра, и есть правка тембра; страница, сдвинувшая байт внутри
-//    Timbre Temporary, - правка параметра партии.
+//  * CONTROL BEFORE MEASUREMENT. The engine read path is proven by writing a known
+//    value and reading it back. Until that passes, no engine reading means anything.
+//  * A CONTROL THAT CAN SHOW FAILURE. The experiment runs TWICE in one run - with
+//    timbre reassertion and without it (D110Core::setToneReassert). A check that can only
+//    print "survived" looks the same both when the fix works and when there was nothing to
+//    overwrite. The real answer is given by two runs side by side.
+//  * ASSUME NOTHING ABOUT THE MENU. Edit pages are found by pressing: press a value and
+//    see which RAM bytes moved by exactly the number of presses. A page that moved a byte
+//    inside the timbre window is a timbre edit; a page that moved a byte inside
+//    Timbre Temporary is a part parameter edit.
 #include "Source/PluginProcessor.h"
 
 #include <cstdio>
@@ -33,12 +32,12 @@ constexpr int kBlock = 512;
 constexpr double kBlockSeconds = double(kBlock) / kSampleRate;
 using Clock = std::chrono::steady_clock;
 
-// Roland адресует три семибитных байта, движок - одно упакованное 21-битное число.
+// Roland addresses three seven-bit bytes, the engine one packed 21-bit number.
 constexpr uint32_t packed(uint32_t a) {
 	return ((a & 0x7f0000u) >> 2) | ((a & 0x7f00u) >> 1) | (a & 0x7fu);
 }
 constexpr uint32_t kToneTempSysex = 0x040000;
-constexpr uint16_t kTimbreTempRam = 0x2000; // 9 партий по 16 байт
+constexpr uint16_t kTimbreTempRam = 0x2000; // 9 parts of 16 bytes
 constexpr int kTimbreTempLen = 9 * 16;
 constexpr uint16_t kToneTempRam = 0x21E4;
 constexpr int kToneStride = 246;
@@ -52,8 +51,8 @@ const Btn kButtons[] = {
 	{"Group-", 1, 3}, {"Bank-", 1, 2}, {"Number-", 1, 1}, {"Enter", 1, 0},
 };
 
-// Одно нажатие пути. Разведка находит путь, опыт проигрывает его заново после заводского
-// сброса - поэтому путь и хранится, а не описывается словами в комментарии.
+// One step of a path. The survey finds the path, the experiment replays it after a factory
+// reset - which is why the path is stored, not described in words in a comment.
 struct Step { const char *btn; int times; };
 using Path = std::vector<Step>;
 
@@ -104,9 +103,10 @@ std::string screen(D110AudioProcessor &proc) {
 	return s;
 }
 
-// СЧИТАЕМ звук, а не спим. Кольцо эксклюзивов разбирает только processBlock, и проспать
-// его - значит оставить весь затор в очереди, а потом получить его залпом посреди
-// измерения. Так уже была молча затёрта собственная контрольная запись одного из зондов.
+// We COMPUTE sound, not sleep. The exclusive ring is drained only by processBlock, and
+// sleeping through it means leaving the whole backlog in the queue and then getting it all at
+// once in the middle of a measurement. That is how one probe's own control write was once
+// silently overwritten.
 void render(D110AudioProcessor &proc, double seconds) {
 	juce::AudioBuffer<float> block(2, kBlock);
 	const auto begin = Clock::now();
@@ -155,15 +155,16 @@ std::vector<uint8_t> snapshot(D110AudioProcessor &proc) {
 	return v;
 }
 
-// Какой партии принадлежит этот адрес тембра, или -1.
+// Which part this timbre address belongs to, or -1.
 int toneOwner(int addr) {
 	if (addr < kToneTempRam) return -1;
 	const int part = (addr - kToneTempRam) / kToneStride;
 	return part < kNumToneParts ? part : -1;
 }
 
-// Байты 0 и 1 записи Timbre Temporary - это ГРУППА и НОМЕР тембра, то есть выбор другого
-// звука. Их сдвиг тембр меняет по праву, и опытом на затирание он быть не может.
+// Bytes 0 and 1 of a Timbre Temporary record are the GROUP and NUMBER of the timbre, i.e. the
+// choice of another sound. Their shift changes the timbre by right, and it cannot be an
+// overwrite experiment.
 bool isTimbreSelect(int addr) {
 	if (addr < kTimbreTempRam || addr >= kTimbreTempRam + kTimbreTempLen) return false;
 	const int off = (addr - kTimbreTempRam) % 16;
@@ -172,18 +173,18 @@ bool isTimbreSelect(int addr) {
 
 struct Hit { bool found = false; int addr = 0; int part = -1; };
 
-// Сдвинулась ли ГРУППА или НОМЕР тембра у какой-нибудь партии - на любую величину. Если
-// да, страница выбирает другой звук, и тембр она переписывает по праву: опытом на затирание
-// такая страница быть не может.
+// Whether the GROUP or NUMBER of the timbre moved for any part - by any amount. If so, the
+// page selects another sound, and it rewrites the timbre by right: such a page cannot be an
+// overwrite experiment.
 bool selectedAnotherTone(const std::vector<uint8_t> &before, const std::vector<uint8_t> &after) {
 	for (int i = kTimbreTempRam; i < kTimbreTempRam + kTimbreTempLen; ++i)
 		if (isTimbreSelect(i) && before[i] != after[i]) return true;
 	return false;
 }
 
-// Байт, сдвинувшийся РОВНО на число нажатий, - подпись правимого параметра. Экранный буфер
-// прошивки меняется вместе с ним, поэтому совпадение по величине сдвига и берётся: оно
-// отделяет параметр от сопутствующего шума.
+// A byte that moved by EXACTLY the number of presses is the signature of the edited
+// parameter. The firmware screen buffer changes along with it, so the match by shift size
+// is what is used: it separates the parameter from the accompanying noise.
 Hit findShift(const std::vector<uint8_t> &before, const std::vector<uint8_t> &after,
               int presses, bool wantTone) {
 	Hit hit;
@@ -214,9 +215,9 @@ void factoryReset(D110AudioProcessor &proc) {
 	press(proc, "Exit", 2);
 }
 
-// Сравнение тембра целиком, а не по имени: имя однозначно называет ЧУЖОЙ звук, но правка
-// одного параметра имени не меняет, и по имени такая потеря невидима. Здесь важно как раз
-// то, что теряется тихо.
+// Comparing the whole timbre, not by name: the name unambiguously names a FOREIGN sound, but
+// editing one parameter does not change the name, and by name such a loss is invisible. What
+// matters here is precisely what is lost silently.
 int compareTone(D110AudioProcessor &proc, const std::vector<uint8_t> &ram, int part,
                 const char *label) {
 	const uint8_t *fw = &ram[kToneTempRam + kToneStride * part];
@@ -241,8 +242,8 @@ int compareTone(D110AudioProcessor &proc, const std::vector<uint8_t> &ram, int p
 	return diff;
 }
 
-// Один опыт целиком: заводской сброс, правка тембра, потом смена параметра партии, и
-// сравнение тембра прошивки с тембром движка ДО и ПОСЛЕ этой смены.
+// One whole experiment: factory reset, timbre edit, then a part parameter change, and a
+// comparison of the firmware timbre with the engine timbre BEFORE and AFTER that change.
 bool runExperiment(D110AudioProcessor &proc, bool reassert, const Path &tonePath,
                    const Path &timbrePath, int tonePart) {
 	std::printf("\n=================================================================\n");
@@ -254,7 +255,7 @@ bool runExperiment(D110AudioProcessor &proc, bool reassert, const Path &tonePath
 	std::printf("  заводской сброс...\n");
 	factoryReset(proc);
 
-	// --- правка тембра ---
+	// --- timbre edit ---
 	walk(proc, tonePath);
 	std::printf("  страница тембра: \"%s\"\n", screen(proc).c_str());
 	proc.getCore().resetTallies();
@@ -264,9 +265,9 @@ bool runExperiment(D110AudioProcessor &proc, bool reassert, const Path &tonePath
 	auto ram = snapshot(proc);
 	std::printf("  после правки, экран \"%s\"\n", screen(proc).c_str());
 	{
-		// Параметр на упоре не сдвинется, и тогда затирать будет НЕЧЕГО: и до, и после
-		// сравнение сойдётся, а опыт при этом не проверит ничего. Такой прогон обязан
-		// сказать это о себе сам.
+		// A parameter at its stop will not move, and then there is NOTHING to overwrite: both before
+		// and after the comparison will agree, and the experiment checks nothing. Such a run must
+		// say so about itself.
 		const int base = kToneTempRam + kToneStride * tonePart;
 		int moved = 0;
 		for (int i = 0; i < kToneStride; ++i)
@@ -276,7 +277,7 @@ bool runExperiment(D110AudioProcessor &proc, bool reassert, const Path &tonePath
 	}
 	const int diffBefore = compareTone(proc, ram, tonePart, "до смены параметра:");
 
-	// --- смена параметра партии ---
+	// --- part parameter change ---
 	press(proc, "Exit", 2);
 	walk(proc, timbrePath);
 	std::printf("  страница параметра партии: \"%s\"\n", screen(proc).c_str());
@@ -326,9 +327,9 @@ int main() {
 		return 1;
 	}
 
-	// ---- КОНТРОЛЬ: работает ли путь чтения тембра из движка --------------------------
-	// Записали в движок известные десять байт имени тембра партии 1 и прочитали обратно.
-	// Пока это не прошло, "тембр затёрт" и "читатель сломан" неотличимы.
+	// ---- CONTROL: does the engine timbre read path work --------------------------
+	// Ten bytes of the timbre name of part 1 were written into the engine and read back.
+	// Until that passes, "timbre overwritten" and "reader broken" are indistinguishable.
 	{
 		static const char kProbeName[10] = {'C','O','N','T','R','O','L','.','.','.'};
 		uint8_t msg[32];
@@ -343,7 +344,7 @@ int main() {
 		msg[n++] = uint8_t((128 - (sum & 0x7f)) & 0x7f);
 		msg[n++] = 0xF7;
 		proc.engineWriteSysexForTest(msg, n);
-		render(proc, 0.4); // очередь эксклюзивов разбирается во время расчёта звука
+		render(proc, 0.4); // the exclusive queue is drained during sound computation
 
 		uint8_t got[10];
 		std::memset(got, 0xAA, sizeof got);
@@ -354,21 +355,21 @@ int main() {
 			std::printf("%c", (got[i] >= 0x20 && got[i] < 0x7f) ? char(got[i]) : '.');
 		std::printf("\"  => %s\n", ok ? "РАБОТАЕТ" : "СЛОМАН - дальше идти незачем");
 		if (!ok) return 1;
-		proc.getCore().resyncMirror(); // вернуть состояние прошивки на место
+		proc.getCore().resyncMirror(); // put the firmware state back
 		render(proc, 1.0);
 	}
 
-	// ---- РАЗВЕДКА: где на панели правится тембр, а где параметр партии ----------------
-	// Меню не описывается по памяти: страницы ищутся тем, что после нажатий сдвигается в
-	// ОЗУ. Байт, сдвинувшийся ровно на число нажатий, называет параметр сам.
+	// ---- SURVEY: where on the panel a timbre is edited and where a part parameter ----------
+	// The menu is not described from memory: pages are found by what shifts in RAM after presses.
+	// A byte that moved by exactly the number of presses names the parameter itself.
 	constexpr int kProbePresses = 3;
 	Path tonePath, timbrePath;
 	int tonePart = -1;
 
-	// Дорога до правок снята измерением раньше и записана в plugin/audio_test.cpp:
-	// Exit, Exit -> Timbre -> Edit открывает ПРАВКУ ПАРАМЕТРОВ ПАРТИИ (её первая страница
-	// "Tone =" выбирает звук), а ещё одно Edit с этой страницы проваливается в ПРАВКУ
-	// ТЕМБРА. Внутри обеих параметры листает Group+, значение меняет Number+.
+	// The road to the edits was measured earlier and recorded in plugin/audio_test.cpp:
+	// Exit, Exit -> Timbre -> Edit opens PART PARAMETER EDITING (its first page
+	// "Tone =" selects the sound), and one more Edit from that page drops into TIMBRE
+	// EDITING. In both, Group+ pages through the parameters and Number+ changes the value.
 	const Path kToneEditRoot = {{"Exit", 2}, {"Timbre", 1}, {"Edit", 1}, {"Edit", 1}};
 	const Path kTimbreEditRoot = {{"Exit", 2}, {"Timbre", 1}, {"Edit", 1}};
 
@@ -431,7 +432,7 @@ int main() {
 	std::printf("\nпуть к тембру          : %s\n", pathText(tonePath).c_str());
 	std::printf("путь к параметру партии: %s\n", pathText(timbrePath).c_str());
 
-	// ---- ОПЫТ, дважды: с подтверждением тембров и без него ----------------------------
+	// ---- EXPERIMENT, twice: with timbre reassertion and without it ----------------------------
 	const bool withOff = runExperiment(proc, false, tonePath, timbrePath, tonePart);
 	const bool withOn = runExperiment(proc, true, tonePath, timbrePath, tonePart);
 	proc.getCore().setToneReassert(true);

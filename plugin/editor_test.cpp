@@ -1,22 +1,22 @@
-// Доходит ли правка из расширенного редактора до прибора, до звука и обратно?
+// Does an edit from the extended editor reach the instrument, the sound, and back?
 //
-// Ящик ничего не подкладывает ни в память прошивки, ни в звуковой движок: он посылает
-// прибору эксклюзивное сообщение на один параметр - ровно то же, что прислал бы внешний
-// редактор по MIDI. Дальше работает уже проверенный путь: прошивка меняет свою память,
-// зеркало переносит изменение в движок. Здесь проверяются обе половины этой цепочки.
+// The box puts nothing into the firmware memory or the sound engine: it sends the
+// instrument a sysex message for one parameter - exactly what an external
+// editor would send over MIDI. From there the already-verified path works: the firmware changes its memory,
+// the mirror carries the change into the engine. Both halves of this chain are checked here.
 //
-// Проверок три, и каждая устроена так, чтобы уметь показать отказ:
+// There are three checks, and each is built so that it can show a failure:
 //
-//   1. КАЖДЫЙ отправитель процессора кладёт свой байт в измеренное место памяти прошивки.
-//      Байт сперва читается, потом ставится ЗАВЕДОМО ДРУГОЙ - иначе «совпало» ничего не
-//      значит, ведь параметр мог уже там стоять.
-//   2. Правка слышна: громкость партии 1 опускается со ста до десяти, и берётся тот же
-//      аккорд. Контроль - та же пара измерений БЕЗ правки между ними.
-//   3. Переход на патч кнопками панели доводит прибор до запрошенного номера, а не до
-//      соседнего: проверяются и «вперёд через границу банка», и обратный ход.
+//   1. EVERY processor sender puts its byte at the measured place in firmware memory.
+//      The byte is read first, then a KNOWINGLY DIFFERENT one is set - otherwise "matched" means
+//      nothing, since the parameter might already have been there.
+//   2. The edit is audible: part 1's volume drops from a hundred to ten, and the same
+//      chord is taken. The control is the same pair of measurements WITHOUT an edit between them.
+//   3. Switching to a patch with the panel buttons brings the instrument to the requested number, not to a
+//      neighbouring one: both "forward across a bank boundary" and the reverse move are checked.
 //
-// Всё, что зонд наменял, в конце снимается заводским сбросом: память прибора - общая с
-// плагином, и оставлять в ней свои метки нельзя.
+// Everything the probe changed is undone at the end by a factory reset: the instrument's memory is shared with
+// the plugin, and leaving our marks in it is not allowed.
 #include "Source/PluginProcessor.h"
 
 #include <chrono>
@@ -59,7 +59,7 @@ int byteAt(D110AudioProcessor &proc, int offset) {
 	return (offset >= 0 && offset < D110Core::kRamSize) ? int(ram[(size_t)offset]) : -1;
 }
 
-// Значение, заведомо отличное от текущего и не выходящее за предел параметра.
+// A value knowingly different from the current one and not exceeding the parameter's limit.
 uint8_t differentFrom(int current, int hi) {
 	const int candidate = (current == hi) ? hi - 1 : current + 1;
 	return uint8_t(juce::jlimit(0, hi, candidate));
@@ -78,7 +78,7 @@ double chordRms(D110AudioProcessor &proc, int channel) {
 		if (b == 0) midi = on;
 		proc.processBlock(buffer, midi);
 		std::this_thread::sleep_for(std::chrono::milliseconds(4));
-		if (b < blocks / 5) continue;   // атака не в счёт: считаем установившийся звук
+		if (b < blocks / 5) continue;   // the attack does not count: we measure the steady-state sound
 		for (int ch = 0; ch < buffer.getNumChannels(); ++ch) {
 			const float *d = buffer.getReadPointer(ch);
 			for (int i = 0; i < buffer.getNumSamples(); ++i) {
@@ -109,7 +109,7 @@ int main() {
 	            proc.isSynthReady() ? "загружены" : "НЕТ");
 	if (!proc.getCore().isRunning()) return 1;
 
-	// --- 1. каждый отправитель кладёт свой байт куда должен ---------------------
+	// --- 1. each sender puts its byte where it should ---------------------
 	std::printf("=== 1. КАЖДАЯ ОБЛАСТЬ, ЧЕРЕЗ ОТПРАВИТЕЛИ ПРОЦЕССОРА ===\n");
 	{
 		struct Case {
@@ -128,9 +128,9 @@ int main() {
 			{ "Rhythm Setup, запись 17, Output Level",
 			  D110Core::kRamRhythmTemp + 16 * D110Core::kRhythmRecord + 1, 100,
 			  [&proc](uint8_t v) { proc.sendRhythmParam(16, 1, v); } },
-			// Резерв партиалов сюда НЕ годится, и это свойство прибора: девять его значений
-			// обязаны в сумме давать ровно 32, поэтому одиночная прибавка отвергается, и
-			// проверка отправителя провалилась бы там, где отправитель ни при чём.
+			// The partial reserve does NOT fit here, and that is a property of the instrument: its nine values
+			// must sum to exactly 32, so a single increment is rejected, and
+			// the sender check would fail where the sender is not at fault.
 			{ "System, Reverb Time",
 			  D110Core::kRamSystem + 2, 7,
 			  [&proc](uint8_t v) { proc.sendSystemParam(2, v); } },
@@ -153,7 +153,7 @@ int main() {
 			          + " -> " + juce::String(after) + ", хотели " + juce::String(int(wanted)));
 		}
 
-		// Имя - десять байт разом, тем же путём.
+		// The name - ten bytes at once, along the same path.
 		proc.sendName(D110Core::kSysexToneTemp, 0, "EditorTest");
 		render(proc, 1.2);
 		const auto ram = snapshot(proc);
@@ -162,18 +162,18 @@ int main() {
 		check(read == "EditorTest", "Tone Temporary, партия 1, имя", "прочитано \"" + read + "\"");
 	}
 
-	// --- 2. слышно ли это ------------------------------------------------------
+	// --- 2. is it audible --------------------------------------------------
 	//
-	// Контроль обязателен: сам по себе «стало тише» ничего не доказывает, потому что второе
-	// измерение отличается от первого ещё и тем, что оно второе. Поэтому сперва берутся два
-	// измерения БЕЗ правки между ними, и только потом - с правкой.
+	// The control is mandatory: "got quieter" proves nothing by itself, because the second
+	// measurement differs from the first also by being the second. So two measurements
+	// WITHOUT an edit between them are taken first, and only then one with an edit.
 	std::printf("\n=== 2. ДОХОДИТ ЛИ ПРАВКА ДО ЗВУКА ===\n");
 	{
-		proc.sendTimbreTempParam(0, 8, 100);   // партия 1 на полной громкости
+		proc.sendTimbreTempParam(0, 8, 100);   // part 1 at full volume
 		render(proc, 1.0);
-		const double a = chordRms(proc, 2);    // партия 1 отвечает на канале 2
+		const double a = chordRms(proc, 2);    // part 1 answers on channel 2
 		const double control = chordRms(proc, 2);
-		proc.sendTimbreTempParam(0, 8, 10);    // и та же партия на десяти
+		proc.sendTimbreTempParam(0, 8, 10);    // and the same part at ten
 		render(proc, 1.0);
 		const double quiet = chordRms(proc, 2);
 
@@ -189,11 +189,11 @@ int main() {
 		render(proc, 0.5);
 	}
 
-	// --- 3. переход на патч кнопками панели -------------------------------------
+	// --- 3. switching to a patch with the panel buttons -------------------------------------
 	//
-	// Таймер, который жмёт кнопки, живёт на очереди сообщений, а в консольной программе её
-	// никто не крутит - поэтому здесь она крутится явно. В плагине этим занимается хозяин
-	// окна, и ничего заводить не нужно.
+	// The timer that presses the buttons lives on the message queue, and in a console program nobody
+	// runs it - so here it is run explicitly. In the plugin the window's host does this,
+	// and nothing needs to be started.
 	std::printf("\n=== 3. ПЕРЕХОД НА ПАТЧ КНОПКАМИ ПАНЕЛИ ===\n");
 	{
 		auto pump = [&proc](int ms) {
@@ -207,8 +207,8 @@ int main() {
 			}
 		};
 
-		// Вперёд через границу банка, назад внутри банка и точно в начало - три разных пути
-		// через ту же арифметику.
+		// Forward across a bank boundary, backward within a bank and exactly to the start - three different paths
+		// through the same arithmetic.
 		for (int target : { 27, 3, 0 }) {
 			proc.selectPatch(target);
 			pump(4000);
@@ -220,15 +220,15 @@ int main() {
 		}
 	}
 
-	// --- 4. правка слышна СРАЗУ ------------------------------------------------
+	// --- 4. the edit is audible IMMEDIATELY ------------------------------------------------
 	//
-	// Две вещи, которые на приборе устроены не так, как ждёт рука. Тон из памяти сам по себе
-	// не звучит - звучит временная область партии, и тон надо туда положить. Патч в памяти
-	// тоже не звучит - прибор играет из временных областей, куда патч попадает только при
-	// выборе. Редактор делает оба переноса сам; здесь проверяется, что он их вправду делает.
+	// Two things that are arranged on the instrument differently from what the hand expects. A tone in memory does not sound
+	// by itself - the part's temporary area sounds, and the tone has to be put there. A patch in memory
+	// does not sound either - the instrument plays from temporary areas, which a patch reaches only on
+	// selection. The editor does both transfers itself; here we check that it really does them.
 	std::printf("\n=== 4. ПОДСТАНОВКА: ТОН И ПАТЧ СЛЫШНЫ СРАЗУ ===\n");
 	{
-		// Тон из ячейки памяти - в партию 3.
+		// A tone from a memory cell - into part 3.
 		const auto ram = snapshot(proc);
 		const size_t slotAt = size_t(D110Core::kRamTones) + 4 * D110Core::kToneMemRecord;
 		juce::String wanted;
@@ -245,22 +245,22 @@ int main() {
 			                          + 2 * D110Core::kToneRecord + size_t(i)]);
 			got += (ch >= 32 && ch < 127) ? ch : ' ';
 		}
-		// Пустая ячейка ничего не доказывает: если память тонов не заполнена, сравнивать
-		// нечего, и это надо сказать, а не выдать за успех.
+		// An empty cell proves nothing: if the tone memory is not filled, there is nothing
+		// to compare, and that must be said, not passed off as success.
 		if (wanted.trim().isEmpty())
 			std::printf("  [ -- ] ячейка памяти тонов пуста, проверять нечего\n");
 		else
 			check(got == wanted, "тон из памяти встал в партию 3",
 			      "ячейка \"" + wanted + "\", в партии \"" + got + "\"");
 
-		// Поле патча, который прибор играет: должно измениться И в памяти, И в живой области.
+		// A field of the patch the instrument plays: it must change BOTH in memory AND in the live area.
 		const int current = proc.currentPatchNumber();
 		if (current < 0) {
 			std::printf("  [FAIL] номер текущего патча не прочитан\n");
 			++g_failed;
 		} else {
 			constexpr int kPart = 1;
-			const int field = 31 + kPart * 12 + 8;   // Output Level второй партии
+			const int field = 31 + kPart * 12 + 8;   // Output Level of the second part
 			const int storedAt = D110Core::kRamPatches + current * D110Core::kPatchRecord + field;
 			const int liveAt = D110Core::kRamTimbreTemp + kPart * D110Core::kTimbreTempRecord + 8;
 			const uint8_t v = differentFrom(byteAt(proc, liveAt), 100);
@@ -274,8 +274,8 @@ int main() {
 			          + juce::String(byteAt(proc, liveAt)));
 		}
 
-		// КОНТРОЛЬ: у ЧУЖОГО патча живая область двигаться не должна - иначе редактор менял
-		// бы звук там, где его не просили.
+		// CONTROL: for a DIFFERENT patch the live area must not move - otherwise the editor would change
+		// the sound where it was not asked to.
 		if (current >= 0) {
 			const int other = (current + 1) % D110Core::kNumPatches;
 			constexpr int kPart = 3;
@@ -290,15 +290,15 @@ int main() {
 		}
 	}
 
-	// --- 5. имя в ящике и имя на индикаторе обязаны совпадать ------------------
+	// --- 5. the name in the box and the name on the display must match ------------------
 	//
-	// «Какой тон играет партия» - это ПАРА байтов, группа и номер, а не один номер. Ящик
-	// показывает имя по паре из записи патча, прибор - по паре из живой области, и если
-	// перенести только один байт из двух, обе стороны останутся при своих: снизу «Fantasy»
-	// (b01), на индикаторе «AcouPiano 1» (a01). Номер сойдётся, группа нет.
+	// "Which tone a part plays" is a PAIR of bytes, group and number, not a single number. The box
+	// shows the name by the pair from the patch record, the instrument - by the pair from the live area, and if
+	// only one byte of the two is carried over, both sides stay with their own: below "Fantasy"
+	// (b01), on the display "AcouPiano 1" (a01). The number agrees, the group does not.
 	//
-	// Проверяется именно расхождение пар, а не одного байта: сперва группы разводятся
-	// заведомо, потом правится номер - тем же вызовом, каким его правит колесо мыши.
+	// What is checked is precisely a divergence of pairs, not of one byte: first the groups are deliberately
+	// made to differ, then the number is edited - with the same call the mouse wheel uses to edit it.
 	std::printf("\n=== 5. ГРУППА И НОМЕР ТОНА ПЕРЕНОСЯТСЯ ВМЕСТЕ ===\n");
 	{
 		const int patch = proc.currentPatchNumber();
@@ -312,7 +312,7 @@ int main() {
 			const size_t liveGroup = size_t(D110Core::kRamTimbreTemp)
 			                       + size_t(kPart) * D110Core::kTimbreTempRecord;
 
-			// Разводим заведомо: в записи патча группа b, в живой области группа a.
+			// We deliberately make them differ: in the patch record group b, in the live area group a.
 			proc.sendPatchMemoryParam(patch, groupField, 1);
 			proc.sendTimbreTempParam(kPart, 0, 0);
 			render(proc, 1.4);
@@ -321,7 +321,7 @@ int main() {
 			                             + groupField),
 			            byteAt(proc, int(liveGroup)));
 
-			// А теперь - ровно то, что делает колесо над полем TONE нижней таблицы.
+			// And now exactly what the wheel over the TONE field of the lower table does.
 			proc.editPatchField(patch, numberField, 0);
 			render(proc, 1.6);
 
@@ -341,7 +341,7 @@ int main() {
 
 	std::printf("\n=== ИТОГ: %d прошло, %d не прошло ===\n", g_passed, g_failed);
 
-	// Убираем за собой: зонд писал в настоящую батарейную память прибора.
+	// Clean up after ourselves: the probe wrote into the instrument's real battery-backed memory.
 	std::printf("\nзаводской сброс...\n");
 	proc.getCore().factoryReset();
 	render(proc, 3.0);

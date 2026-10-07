@@ -1,9 +1,9 @@
-// «В демо-песне патчи не соответствуют» - но демо-песня самодостаточна (прошивка играет
-// сама себя, тона зашиты в отдельной микросхеме ic15/ic12), и с патчами из батарейной
-// памяти (0x0000, у которых нет настоящих заводских имён - только карты FACTORY PRESET,
-// которой у нас нет, дают их) она может быть вообще не связана. Единственный способ узнать,
-// откуда демо берёт то, что играет и показывает - посмотреть, трогает ли она Patch Memory
-// (0x0000-0x1FFF) и Timbre Memory (0x2994-0x33BF) во время проигрывания вообще.
+// "In the demo song the patches do not match" - but the demo song is self-contained (the
+// firmware plays itself, the tones are baked into a separate chip ic15/ic12), and it may
+// be entirely unrelated to the patches from battery memory (0x0000, which have no real
+// factory names - only FACTORY PRESET cards, which we do not have, supply them). The only
+// way to learn where the demo takes what it plays and shows is to see whether it touches
+// Patch Memory (0x0000-0x1FFF) and Timbre Memory (0x2994-0x33BF) at all while playing.
 #include "Source/PluginProcessor.h"
 
 #include <cstdio>

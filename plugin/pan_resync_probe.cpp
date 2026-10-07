@@ -1,8 +1,8 @@
-// Живая Timbre Temporary читается сплошным центром (pan 7 у всех восьми партий) при том, что
-// область памяти патча несёт верные заводские значения (4,10,6,8,2,12,0,14) - то есть
-// правильные данные лежат в патче, но в звучащую область не попали. Проверяет одну гипотезу:
-// достаточно ли заново ВЫБРАТЬ текущий патч (как нажатие Patch на панели), чтобы прошивка
-// сама перенесла его поля в Timbre Temporary - или проблема глубже.
+// The live Timbre Temporary reads as a solid centre (pan 7 on all eight parts) while the
+// patch memory area carries the correct factory values (4,10,6,8,2,12,0,14) - i.e. the
+// right data sits in the patch but did not reach the sounding area. Tests one hypothesis:
+// is it enough to SELECT the current patch again (like pressing Patch on the panel) for
+// the firmware to carry its fields into Timbre Temporary itself - or is the problem deeper.
 #include "Source/PluginProcessor.h"
 
 #include <cstdio>
@@ -13,10 +13,10 @@ namespace {
 constexpr double kSampleRate = 44100.0;
 constexpr int kBlock = 512;
 
-// Нажатия кнопок в selectPatch() ведёт juce::Timer, а ему для срабатывания нужен прокрученный
-// цикл сообщений - в консольной программе его никто не крутит сам, в отличие от плагина,
-// где этим занят хозяин окна. Без прокрутки очередь кнопок стоит на месте вечно, и первая
-// версия этого зонда так и не заметила, что 0x2DB9 не сдвинулся ни разу.
+// The button presses in selectPatch() are driven by a juce::Timer, which needs a pumped
+// message loop to fire - in a console program nobody pumps it, unlike in the plugin,
+// where the window host does. Without pumping, the button queue stands still forever, and
+// the first version of this probe never noticed that 0x2DB9 did not move even once.
 void render(D110AudioProcessor &proc, double seconds) {
 	juce::AudioBuffer<float> buffer(2, kBlock);
 	const auto until = std::chrono::steady_clock::now() + std::chrono::duration<double>(seconds);
@@ -31,9 +31,9 @@ void render(D110AudioProcessor &proc, double seconds) {
 void printPan(D110AudioProcessor &proc, const char *label) {
 	std::vector<uint8_t> ram(D110Core::kRamSize, 0);
 	proc.getCore().getRam(ram.data());
-	// Пары группа/номер живой области - тон, который реально играет каждая партия сейчас,
-	// не то, что записано в патче. Если навигация вправду доходит до прошивки, тут должны
-	// смениться цифры вместе с номером патча по 0x2DB9.
+			// Group/number pairs of the live area - the tone each part actually plays right now,
+			// not what is stored in the patch. If navigation really reaches the firmware, these
+			// digits should change along with the patch number at 0x2DB9.
 	std::printf("%s  (0x2DB9=%d)\n", label, int(ram[(size_t)D110Core::kRamPatchNumber]));
 	std::printf("  живые тона партий (группа/номер): ");
 	for (int part = 0; part < 8; ++part) {
@@ -67,10 +67,10 @@ int main() {
 	printPan(proc, "=== ДО ===");
 
 	const int current = proc.currentPatchNumber();
-	// Если просить тот же номер, что уже стоит, bankStep и numberStep выходят нулевыми, и
-	// selectPatch нажимает только экран выбора патча - НИ ОДНОГО Bank/Number не нажимается,
-	// а копирование поля в живую область, судя по всему, и происходит именно по ним. Поэтому
-	// сначала уходим на другой патч - настоящее нажатие Bank/Number, - потом обратно.
+			// If we ask for the same number that is already set, bankStep and numberStep come out
+			// zero, and selectPatch presses only the patch select screen - NOT ONE Bank/Number
+			// press, and copying the field into the live area apparently happens exactly on those.
+			// So we first move to another patch - a real Bank/Number press - then back.
 	const int away = (current == 0) ? 5 : 0;
 	std::printf("\nтекущий патч: %d, ухожу на %d...\n", current, away);
 	proc.selectPatch(away);
