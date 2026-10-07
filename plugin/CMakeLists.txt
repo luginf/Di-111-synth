@@ -336,24 +336,13 @@ target_compile_definitions(D110EmulatorNative PUBLIC
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_DISPLAY_SPLASH_SCREEN=0
-    # Off (JUCE defaults it ON for any plugin that wants MIDI input): a legacy VST2/VST3
-    # compatibility shim that shadows every MIDI CC/pitch bend/aftertouch, on every channel,
-    # as its own separate automatable VST3 parameter (~2050 of them), purely so a host that
-    # can only automate parameters - never send real MIDI - can still reach them. We always
-    # receive real MIDI directly (data.inputEvents, unaffected by this flag), so we have no
-    # use for the shadow path - and Alan reported (2026-08-20) the D-110 arriving detuned by
-    # a fixed amount specifically when hosted by Carla, and only this plugin among everything
-    # else he runs there: a host that proactively resets every declared parameter to its
-    # default on load (Carla's own log: "Previous plugin state ... non-existent, will start
-    # from default state") would hit the shadow pitch-bend parameter's default (0, i.e. fully
-    # down, not centred) and JUCE would convert that straight back into a real MIDI Pitch
-    # Bend message - which this plugin, unlike most synths, forwards straight to the real
-    # firmware (forwardMidiToFirmware()'s own comment: "notes, controllers, program changes,
-    # bend, exclusive - goes through"), landing wherever the current Timbre's PITCH BEND
-    # RANGE puts it and staying there for the rest of the session. Strong candidate, not
-    # confirmed live in Carla (attempted repro hit an unrelated, broken sandbox here - no
-    # realtime audio permissions, heavy xruns) - ask Alan to confirm this actually fixes it.
-    JUCE_VST3_EMULATE_MIDI_CC_WITH_PARAMETERS=0
+    # On (JUCE's default). VST3 has no pitch bend/aftertouch/CC events: hosts such as Ardour
+    # and FL Studio deliver them only through IMidiMapping, i.e. as parameter changes, and this
+    # shim is what maps them back to real MIDI (GitHub issue #8). It was turned off on
+    # 2026-08-20 because a host resetting every parameter to its default (Carla) made the
+    # pitch bend shadow parameter (default 0 = fully down) land as a real Pitch Bend 0; that
+    # is now handled in processBlock() (dropRogueInitialPitchBend), not by disabling this.
+    JUCE_VST3_EMULATE_MIDI_CC_WITH_PARAMETERS=1
 )
 
 target_link_libraries(D110EmulatorNative PRIVATE

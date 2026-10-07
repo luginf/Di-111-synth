@@ -906,6 +906,8 @@ private:
 	// per-block MIDI merging/remapping and queue draining never allocate - see the
 	// comments at each use site in processBlock().
 	juce::MidiBuffer midiRemapScratch, portMidiScratch, sequencerOutScratch;
+	// Per channel: has a pitch bend other than the host-reset value 0 been seen yet (see processBlock()).
+	std::array<bool, 17> pitchBendSeen{};
 	std::vector<d110seq::D110SequencerEngine::MetronomeClick> sequencerClicks;
 	std::vector<std::vector<MT32Emu::Bit8u>> pendingImportsToSendScratch;
 	std::vector<MT32Emu::Bit32u> pendingShortMessagesToSendScratch;
