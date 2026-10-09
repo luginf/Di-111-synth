@@ -406,6 +406,11 @@ public:
 	bool getCompactPanelMode() const { return compactPanelMode; }
 	void setCompactPanelMode(bool compact) { compactPanelMode = compact; }
 
+	// Colour scheme of the front-panel LCD (index into D110Panel's own table, 0 = the original green).
+	// Right-click menu "LCD"; saved with the state like compactPanelMode.
+	int getLcdColor() const { return lcdColor; }
+	void setLcdColor(int index) { lcdColor = index; }
+
 	// One shared "last used folder" for every file dialog in the app (SysEx bank import/
 	// export, memory snapshot save/load, the sequencer's own .mid/.midiseq dialogs) - set
 	// after each successful pick, offered as the starting point for the next one, so
@@ -1035,6 +1040,7 @@ private:
 	bool sequencerGridMode = false;
 	int gridRowHeight = 0; // see D110SequencerHost::getGridRowHeight()
 	bool compactPanelMode = false;
+	int lcdColor = 0;
 	juce::String retroKeyBindings;
 	bool retroLcdCompactMode = false;
 	bool debugModeEnabled = false;

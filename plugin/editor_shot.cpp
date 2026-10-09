@@ -102,6 +102,9 @@ int main(int argc, char **argv) {
 	                               "tones", "system", "monitor", "soundbanks", "utility" };
 	constexpr int kNumTabs = int(sizeof(kTabs) / sizeof(kTabs[0]));
 
+	// Optional 5th argument: LCD colour scheme index (0 = green, see the right-click menu "LCD").
+	if (argc > 5) proc.setLcdColor(std::atoi(argv[5]));
+
 	D110EditorPane pane(proc);
 	pane.setBounds(0, 0, width, height);
 	pane.resized();

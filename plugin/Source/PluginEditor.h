@@ -440,6 +440,7 @@ private:
 	void layout();
 	void layoutParts(juce::Rectangle<float> area);
 	void layoutTone(juce::Rectangle<float> area);
+	void paintToneEnvelopes(juce::Graphics &g);
 	void layoutRhythm(juce::Rectangle<float> area);
 	void layoutPatches(juce::Rectangle<float> area);
 	void layoutPatchesList(juce::Rectangle<float> area);
@@ -505,6 +506,8 @@ private:
 	juce::Rectangle<float> soundbankFolderBounds;
 	int tonePartial = 0;
 	std::array<juce::Rectangle<float>, 4> tonePartialBounds{};
+	// Tone tab: the three envelope sketches (pitch, TVF, TVA) of the partial shown in full.
+	std::array<juce::Rectangle<float>, 3> toneEnvBounds{};
 	// Tone tab's LOCK PARTIALS toggle - while on, editing a Partial 1 field also sets the same
 	// field, to the same value, on Partials 2-4 (same feature/wording as ~/src/D110/edisyn's
 	// RolandD110Tone "Lock Partials" checkbox). Editor-local UI state, not sent to the

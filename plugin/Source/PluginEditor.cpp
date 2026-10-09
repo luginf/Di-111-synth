@@ -79,6 +79,33 @@ const juce::Colour kGlassOn(0xff6ab81f);  // lit field
 const juce::Colour kGlassOff(0xff2c5210); // backlight off: same hue, clearly dimmer
 const juce::Colour kInk(0xff05230a);
 
+// The LCD colour choices of the right-click menu "LCD" - the same names and colours as the JV-880 emulator
+// (glass and ink), except that "Green" stays this panel's own green rather than the JV-880's.
+struct LcdScheme {
+	const char *name;
+	juce::Colour on;   // lit glass
+	juce::Colour ink;  // dots
+};
+const LcdScheme kLcdSchemes[] = {
+	{ "Green",       kGlassOn,               kInk },
+	{ "Amber",       juce::Colour(0xffbe9f03), juce::Colour(0xff502000) },
+	{ "Red",         juce::Colour(0xff600000), juce::Colour(0xffff3040) },
+	{ "Blue",        juce::Colour(0xff1860ff), juce::Colour(0xffdcdcdc) },
+	{ "White-Black", juce::Colour(0xffe8f8f8), juce::Colour(0xff181818) },
+	{ "White-Blue",  juce::Colour(0xffe8f8f8), juce::Colour(0xff2040ff) },
+	{ "Black-White", juce::Colour(0xff000000), juce::Colour(0xffdcdcdc) },
+	{ "Black-Amber", juce::Colour(0xff000000), juce::Colour(0xffc0b400) },
+	{ "Black-Red",   juce::Colour(0xff000000), juce::Colour(0xffff3040) },
+	{ "Black-Green", juce::Colour(0xff000000), juce::Colour(0xff00c040) },
+	{ "Black-Blue",  juce::Colour(0xff000000), juce::Colour(0xff4080ff) },
+	{ "VFD",         juce::Colour(0xff000000), juce::Colour(0xffc0ffff) },
+};
+constexpr int kNumLcdSchemes = int(sizeof(kLcdSchemes) / sizeof(kLcdSchemes[0]));
+const LcdScheme &lcdScheme(int index) { return kLcdSchemes[juce::jlimit(0, kNumLcdSchemes - 1, index)]; }
+juce::Colour lcdGlassOff(int index) {
+	return index <= 0 ? kGlassOff : lcdScheme(index).on.interpolatedWith(juce::Colours::black, 0.55f);
+}
+
 // Supersampling factor for the offscreen LCD render.
 constexpr int kLcdSuper = 8;
 
@@ -264,11 +291,11 @@ void D110Panel::rebuildLcdImage()
 	// noticeably dimmer, and nothing is written on it. The same holds in the second or
 	// two after POWER while the machine starts and the firmware has not drawn yet.
 	if (!processor.isPoweredOn() || !lcdLive) {
-		g.fillAll(kGlassOff);
+		g.fillAll(lcdGlassOff(processor.getLcdColor()));
 		return;
 	}
 
-	g.fillAll(kGlassOn);
+	g.fillAll(lcdScheme(processor.getLcdColor()).on);
 
 	// Panel-space -> offscreen-pixel. Deliberately NOT rounded to whole pixels: the
 	// character cell is 14.4 panel px across 6 dot columns, so snapping makes dot
@@ -283,7 +310,7 @@ void D110Panel::rebuildLcdImage()
 	// it to stay that same fraction rather than eating a growing share of a shrunk dot.
 	const float kDotGapX = 2.0f * (super / float(kLcdSuper)), kDotGapY = 2.2f * (super / float(kLcdSuper));
 
-	g.setColour(kInk);
+	g.setColour(lcdScheme(processor.getLcdColor()).ink);
 	for (int line = 0; line < kLines; ++line)
 		for (int col = 0; col < kCols; ++col) {
 			// One byte per dot row, straight out of the real MSM6222B: bit 4 is the
@@ -513,7 +540,7 @@ void D110Panel::paintLcd(juce::Graphics &g) const
 	// Blank the window first and unconditionally: the photograph was taken of a
 	// unit with its own glass showing, and anything less than a guaranteed opaque
 	// cover here lets that ghost through under the live render.
-	g.setColour(processor.isPoweredOn() ? kGlassOn : kGlassOff);
+	g.setColour(processor.isPoweredOn() ? lcdScheme(processor.getLcdColor()).on : lcdGlassOff(processor.getLcdColor()));
 	g.fillRect(lcdX, kLcdY, kLcdW, kLcdH);
 
 	if (lcdImage.isValid()) {
@@ -777,6 +804,12 @@ void D110Panel::showOptionsMenu()
 	// reachable by opening the editor drawer and navigating there. Repeated here so it's one
 	// right-click away, the same shortcut the channel/remap entries below get.
 	m.addItem(6, "LA Reference (algorithms & envelopes)...");
+	{
+		juce::PopupMenu lcdMenu;
+		for (int i = 0; i < kNumLcdSchemes; ++i)
+			lcdMenu.addItem(1000 + i, kLcdSchemes[i].name, true, processor.getLcdColor() == i);
+		m.addSubMenu("LCD", lcdMenu);
+	}
 	// Same setting D110Keyboard's own right-click already exposes (see its showContextMenu) -
 	// repeated here so it's reachable without opening/finding the on-screen keyboard drawer.
 	// Github issue #4: with MIDI Remap on, this channel is also what ALL incoming MIDI (host-
@@ -870,6 +903,12 @@ void D110Panel::showOptionsMenu()
 		[this, reverb, superMode, reverbOn, superOn, ins, outs](int result) {
 			// The port lists are captured as they were when the menu opened, so an entry
 			// always means the device the user actually saw and picked.
+			if (result >= 1000 && result < 1000 + kNumLcdSchemes) {
+				processor.setLcdColor(result - 1000);
+				if (lcdInitialised) rebuildLcdImage();
+				repaint();
+				return;
+			}
 			if (result == 300) { processor.setMidiInputDevice({}); return; }
 			if (result == 301) { processor.setMidiOutputDevice({}); return; }
 			if (result > 700 && result <= 716) {
@@ -955,6 +994,9 @@ void D110Panel::showOptionsMenu()
 // Extended editor
 
 namespace {
+// Height of the strip of envelope sketches above the partial-in-full columns of the Tone tab.
+constexpr float kToneEnvH = 56.0f;
+
 
 // Colours taken from the instrument itself, so the drawer reads as its continuation rather
 // than a foreign panel: labels are blue, like Roland's own silkscreen on the front panel;
@@ -1260,7 +1302,7 @@ void D110EditorPane::layout() {
 		float hMin = 210.0f;                                  // PARTS: heading + 9 rows of 20
 		if (tab == Tab::Tone) {
 			constexpr size_t most = 15;                       // longest of kWg/kPitchEnv/kTvf/kTva
-			hMin = 225.0f + 14.0f * float(most);              // header rows + 4 partials + 14px param rows
+			hMin = 249.0f + 19.0f * float(most) + kToneEnvH + 6.0f;   // header rows + 4 partials + env sketches + 19px param rows (scrolls sooner rather than squeezing the text)
 		} else if (tab == Tab::System) {
 			hMin = 220.0f;
 		} else if (tab == Tab::Patches) {
@@ -1298,6 +1340,7 @@ void D110EditorPane::layout() {
 		for (auto &b : buttons) b.bounds.translate(0.0f, dy);
 		for (auto &r : partBounds) r.translate(0.0f, dy);
 		for (auto &r : tonePartialBounds) r.translate(0.0f, dy);
+		for (auto &r : toneEnvBounds) r.translate(0.0f, dy);
 		for (auto &r : patchesSubTabBounds) r.translate(0.0f, dy);
 		toneNameBounds.translate(0.0f, dy);
 		tableArea.translate(0.0f, dy);
@@ -1440,6 +1483,103 @@ const D110EditorPane::ToneParam D110EditorPane::kTva[] = {
 	{ "TVA-ENV SUS L",  57, 100 },
 };
 
+// Sketch of the three envelopes of the partial shown in full. Pitch: L0 -> L1 -> L2 -> SUS L while the
+// key is held (T1..T3), then T4 to END L on release; the levels are centred on 50 and scaled by P-ENV
+// DEPTH (0-10). TVF and TVA: start at 0, T1..T4 reach L1, L2, L3, SUS L, then T5 returns to 0 on release.
+// The horizontal axis is a display scale (the time parameters are not linear in seconds), without units.
+void D110EditorPane::paintToneEnvelopes(juce::Graphics &g) {
+	const int base = 14 + tonePartial * 58;
+	auto val = [&](int off) {
+		Cell c;
+		c.area = Area::ToneTemp;
+		c.index = part;
+		c.field = base + off;
+		return valueOf(c);
+	};
+
+	struct Sketch {
+		const char *title;
+		bool bipolar;
+		juce::Colour colour;
+		std::vector<std::pair<int, int>> rising;   // time, level (raw 0..100) up to the sustain level
+		int startLevel;
+		std::pair<int, int> release;               // time, end level
+		float depth;                               // 0..1 scale applied around the centre (pitch only)
+	};
+	const int depth = val(8);
+	const Sketch sk[3] = {
+		{ "P-ENV", true, juce::Colour(0xff5fb4ff),
+		  { { val(11), val(16) }, { val(12), val(17) }, { val(13), val(18) } }, val(15),
+		  { val(14), val(19) }, depth < 0 ? 0.0f : juce::jmin(1.0f, float(depth) / 10.0f) },
+		{ "TVF-ENV", false, juce::Colour(0xffffb347),
+		  { { val(32), val(37) }, { val(33), val(38) }, { val(34), val(39) }, { val(35), val(40) } }, 0,
+		  { val(36), 0 }, 1.0f },
+		{ "TVA-ENV", false, juce::Colour(0xff7be08a),
+		  { { val(49), val(54) }, { val(50), val(55) }, { val(51), val(56) }, { val(52), val(57) } }, 0,
+		  { val(53), 0 }, 1.0f },
+	};
+
+	for (size_t i = 0; i < 3; ++i) {
+		const auto &s = sk[i];
+		const auto b = toneEnvBounds[i];
+		if (b.isEmpty()) continue;
+		g.setColour(kEdBox());
+		g.fillRoundedRectangle(b, 3.0f);
+		g.setColour(kEdBorder());
+		g.drawRoundedRectangle(b.reduced(0.5f), 3.0f, 1.0f);
+		g.setColour(kEdDim());
+		g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
+		g.drawText(s.title, b.reduced(5.0f, 1.0f), juce::Justification::topLeft);
+
+		bool ok = s.startLevel >= 0 && s.release.first >= 0 && s.release.second >= 0;
+		for (const auto &pt : s.rising) ok = ok && pt.first >= 0 && pt.second >= 0;
+		if (!ok) continue;   // memory not read yet
+
+		const auto plot = b.reduced(6.0f, 4.0f).withTrimmedTop(10.0f);
+		auto yOf = [&](int level) {
+			if (s.bipolar) {
+				const float v = juce::jlimit(-1.0f, 1.0f, (float(level) - 50.0f) / 50.0f * s.depth);
+				return plot.getCentreY() - v * plot.getHeight() * 0.5f;
+			}
+			return plot.getBottom() - juce::jlimit(0.0f, 1.0f, float(level) / 100.0f) * plot.getHeight();
+		};
+		auto widthOf = [](int t) { const float x = float(t) / 100.0f; return 2.0f + 30.0f * x * x; };
+
+		const float sustainW = 12.0f;
+		float total = sustainW + widthOf(s.release.first);
+		for (const auto &pt : s.rising) total += widthOf(pt.first);
+		const float k = plot.getWidth() / total;
+
+		g.setColour(juce::Colours::white.withAlpha(0.15f));
+		g.drawHorizontalLine(int(yOf(s.bipolar ? 50 : 0)), plot.getX(), plot.getRight());
+
+		juce::Path line;
+		float x = plot.getX();
+		line.startNewSubPath(x, yOf(s.startLevel));
+		for (const auto &pt : s.rising) {
+			x += widthOf(pt.first) * k;
+			line.lineTo(x, yOf(pt.second));
+		}
+		const float sustainEnd = x + sustainW * k;
+		line.lineTo(sustainEnd, yOf(s.rising.back().second));
+		line.lineTo(sustainEnd + widthOf(s.release.first) * k, yOf(s.release.second));
+
+		juce::Path fill(line);
+		fill.lineTo(plot.getRight(), yOf(s.release.second));
+		fill.lineTo(plot.getRight(), yOf(s.bipolar ? 50 : 0));
+		fill.closeSubPath();
+		g.setColour(s.colour.withAlpha(0.15f));
+		g.fillPath(fill);
+		g.setColour(s.colour);
+		g.strokePath(line, juce::PathStrokeType(1.6f));
+
+		// where the key is released
+		g.setColour(juce::Colours::white.withAlpha(0.25f));
+		const float dash[] = { 3.0f, 3.0f };
+		g.drawDashedLine(juce::Line<float>(sustainEnd, plot.getY(), sustainEnd, plot.getBottom()), dash, 2);
+	}
+}
+
 // The part's tone: the same 246-byte record the unit edits through its Edit pages. On the
 // D-110 a tone is up to FOUR partials, and the "structure" sets how they are paired:
 // sum or ring modulation.
@@ -1479,8 +1619,9 @@ void D110EditorPane::layoutTone(juce::Rectangle<float> area) {
 		row.removeFromLeft(8.0f);
 		buttons.push_back({ row.removeFromLeft(90.0f), "RANDOM", 24 });
 		row.removeFromLeft(8.0f);
-		labels.push_back({ row.removeFromLeft(juce::jmin(row.getWidth(), w * 0.35f)).reduced(6.0f, 0.0f),
-		                    "editing Partial 1 also sets Partials 2-4 to match", false });
+		if (lockPartials)
+			labels.push_back({ row.removeFromLeft(juce::jmin(row.getWidth(), w * 0.35f)).reduced(6.0f, 0.0f),
+			                    "editing Partial 1 also sets Partials 2-4 to match", false });
 		area.removeFromTop(8.0f);
 	}
 
@@ -1525,15 +1666,13 @@ void D110EditorPane::layoutTone(juce::Rectangle<float> area) {
 		                   kCols[i].head, true });
 	}
 
-	const float rowH = juce::jlimit(20.0f, 30.0f, area.getHeight() / 11.0f);
+	const float rowH = juce::jlimit(26.0f, 32.0f, area.getHeight() / 11.0f);   // 13 pt text needs the room
 	for (int partial = 0; partial < 4; ++partial) {
 		auto row = area.removeFromTop(rowH).reduced(0.0f, 3.0f);
 		const int base = 14 + partial * 58;
 		tonePartialBounds[(size_t)partial] =
 			juce::Rectangle<float>(row.getX(), row.getY(), w * kCols[1].frac - 6.0f,
 			                       row.getHeight());
-		labels.push_back({ tonePartialBounds[(size_t)partial],
-		                   "PARTIAL " + juce::String(partial + 1), partial == tonePartial });
 		for (int i = 1; i < kNumCols; ++i) {
 			const float right = (i + 1 < kNumCols) ? kCols[i + 1].frac : 1.0f;
 			cells.push_back({ juce::Rectangle<float>(row.getX() + w * kCols[i].frac, row.getY(),
@@ -1554,6 +1693,14 @@ void D110EditorPane::layoutTone(juce::Rectangle<float> area) {
 	const int base = 14 + tonePartial * 58;
 
 	const float colW = w / 4.0f;
+	{
+		// One sketch above each of the three columns that hold the envelopes (pitch, TVF, TVA).
+		auto strip = area.removeFromTop(kToneEnvH);
+		area.removeFromTop(6.0f);
+		for (int i = 0; i < 3; ++i)
+			toneEnvBounds[(size_t)i] = juce::Rectangle<float>(strip.getX() + colW * float(i + 1), strip.getY(),
+			                                                   colW - 12.0f, strip.getHeight());
+	}
 	auto column = [&](int i) {
 		return juce::Rectangle<float>(area.getX() + colW * float(i), area.getY(),
 		                              colW - 12.0f, area.getHeight());
@@ -1567,7 +1714,7 @@ void D110EditorPane::layoutTone(juce::Rectangle<float> area) {
 void D110EditorPane::layoutParamColumn(juce::Rectangle<float> column, int partialBase,
                                        const ToneParam *params, int count) {
 	if (count <= 0) return;
-	const float rowH = juce::jlimit(14.0f, 22.0f, column.getHeight() / float(count));
+	const float rowH = juce::jlimit(19.0f, 24.0f, column.getHeight() / float(count));   // 13 pt text needs the room
 	for (int i = 0; i < count; ++i) {
 		auto row = column.removeFromTop(rowH);
 		if (row.getHeight() < 10.0f) return;
@@ -1837,7 +1984,7 @@ void D110EditorPane::layoutTones(juce::Rectangle<float> area) {
 	}
 
 	tableArea = area;
-	rowHeight = juce::jlimit(18.0f, 26.0f, area.getHeight() / 12.0f);
+	rowHeight = juce::jlimit(22.0f, 28.0f, area.getHeight() / 12.0f);
 	const int rows = juce::jmax(1, int(area.getHeight() / rowHeight));
 	toneRows = rows;
 	toneScroll = juce::jlimit(0, juce::jmax(0, D110CoreType::kNumTones - rows * 3), toneScroll);
@@ -2772,9 +2919,15 @@ void D110EditorPane::paint(juce::Graphics &g) {
 	if (cells.empty() && buttons.empty() && tab != Tab::Monitor) layout();
 
 	const float scale = fontScale();
-	const juce::Font labelFont(juce::FontOptions(11.0f * scale, juce::Font::bold));
+	// The tab strip keeps its 11 pt; TONE and TONES use 13 pt body text, the size of SOUNDBANKS.
+	const juce::Font stripFont(juce::FontOptions(11.0f * scale, juce::Font::bold));
+	const bool bigText = (tab == Tab::Tone || tab == Tab::Tones);
+	const juce::Font labelFont(juce::FontOptions((bigText ? 13.0f : 11.0f) * scale, juce::Font::bold));
 	const juce::Font valueFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(),
-	                                             12.0f * scale, juce::Font::plain));
+	                                             (bigText ? 13.0f : 12.0f) * scale, juce::Font::plain));
+	// Secondary text on TONE, TONES, UTILITY and MONITOR: halfway between the theme's grey and pure white.
+	const juce::Colour dimText = (bigText || tab == Tab::Utility || tab == Tab::Monitor)
+		? kEdDim().interpolatedWith(juce::Colours::white, 0.5f) : kEdDim();
 
 	const char *kTabs[] = { "PARTS", "TONE", "RHYTHM", "PATCHES", "TIMBRES", "TONES",
 	                        "SYSTEM", "MONITOR", "SOUNDBANKS", "UTILITY" };
@@ -2785,7 +2938,7 @@ void D110EditorPane::paint(juce::Graphics &g) {
 		g.setColour(active ? kEdValue() : kEdBorder());
 		g.drawRoundedRectangle(tabBounds[(size_t)i].reduced(0.5f), 3.0f, 1.0f);
 		g.setColour(active ? kEdValue() : kEdLabel());
-		g.setFont(labelFont);
+		g.setFont(stripFont);
 		g.drawText(kTabs[i], tabBounds[(size_t)i], juce::Justification::centred);
 	}
 
@@ -2795,7 +2948,7 @@ void D110EditorPane::paint(juce::Graphics &g) {
 		g.setColour(kEdBorder());
 		g.drawRoundedRectangle(optionsButtonBounds.reduced(0.5f), 3.0f, 1.0f);
 		g.setColour(kEdLabel());
-		g.setFont(labelFont);
+		g.setFont(stripFont);
 		g.drawText("OPTIONS", optionsButtonBounds, juce::Justification::centred);
 	}
 
@@ -2826,7 +2979,7 @@ void D110EditorPane::paint(juce::Graphics &g) {
 			g.fillRoundedRectangle(partBounds[(size_t)p], 3.0f);
 			g.setColour(active ? kEdValue() : kEdBorder());
 			g.drawRoundedRectangle(partBounds[(size_t)p].reduced(0.5f), 3.0f, 1.0f);
-			g.setColour(active ? kEdValue() : kEdDim());
+			g.setColour(active ? kEdValue() : dimText);
 			g.setFont(labelFont);
 			g.drawText(juce::String(p + 1), partBounds[(size_t)p], juce::Justification::centred);
 		}
@@ -2836,6 +2989,22 @@ void D110EditorPane::paint(juce::Graphics &g) {
 		g.setFont(valueFont);
 		g.drawText(nameAt(size_t(D110CoreType::kRamToneTemp) + size_t(part) * D110CoreType::kToneRecord),
 		           toneNameBounds, juce::Justification::centredLeft);
+	}
+	if (tab == Tab::Tone) {
+		paintToneEnvelopes(g);
+		// PARTIAL 1-4: buttons (like the PART row above) - clicking one switches the partial shown in full.
+		for (int p = 0; p < 4; ++p) {
+			const auto b = tonePartialBounds[(size_t)p];
+			if (b.isEmpty()) continue;
+			const bool active = (p == tonePartial);
+			g.setColour(active ? kEdBox().brighter(0.3f) : kEdBox());
+			g.fillRoundedRectangle(b, 3.0f);
+			g.setColour(active ? kEdValue() : kEdBorder());
+			g.drawRoundedRectangle(b.reduced(0.5f), 3.0f, 1.0f);
+			g.setColour(active ? kEdValue() : kEdLabel());
+			g.setFont(labelFont);
+			g.drawText("PARTIAL " + juce::String(p + 1), b, juce::Justification::centred);
+		}
 	}
 
 	// PATCHES' own sub-tab strip - same active/inactive styling as the main tab strip
@@ -2864,7 +3033,7 @@ void D110EditorPane::paint(juce::Graphics &g) {
 
 	g.setFont(labelFont);
 	for (const Label &l : labels) {
-		g.setColour(l.heading ? kEdLabel() : kEdDim());
+		g.setColour(l.heading ? kEdLabel() : dimText);
 		g.drawText(l.text, l.bounds, l.just);
 	}
 
@@ -2878,7 +3047,7 @@ void D110EditorPane::paint(juce::Graphics &g) {
 			drawBox(g, b.bounds, chosen);
 			const juce::String name = nameAt(size_t(D110CoreType::kRamTones)
 			                                 + size_t(slot) * D110CoreType::kToneMemRecord);
-			g.setColour(chosen ? kEdValue() : kEdDim());
+			g.setColour(chosen ? kEdValue() : dimText);
 			g.setFont(valueFont);
 			g.drawText(juce::String(slot + 1).paddedLeft(' ', 2) + "  "
 			               + (name.isEmpty() ? juce::String("- - -") : name),
@@ -2890,7 +3059,7 @@ void D110EditorPane::paint(juce::Graphics &g) {
 			g.fillRoundedRectangle(b.bounds, 3.0f);
 			g.setColour(lockPartials ? kEdValue() : kEdBorder());
 			g.drawRoundedRectangle(b.bounds.reduced(0.5f), 3.0f, 1.0f);
-			g.setColour(lockPartials ? kEdValue() : kEdDim());
+			g.setColour(lockPartials ? kEdValue() : dimText);
 			g.setFont(labelFont);
 			g.drawText(b.text, b.bounds, juce::Justification::centred);
 			continue;
@@ -3004,6 +3173,8 @@ void D110EditorPane::paint(juce::Graphics &g) {
 // think about this", not "what did the emulator hear".
 void D110EditorPane::paintMonitor(juce::Graphics &g, juce::Rectangle<float> area) {
 	const float scale = fontScale();
+	// Same brighter secondary text as the TONE tabs: halfway between the theme's grey and white.
+	const juce::Colour dimText = kEdDim().interpolatedWith(juce::Colours::white, 0.5f);
 	const juce::Font labelFont(juce::FontOptions(11.0f * scale, juce::Font::bold));
 	const juce::Font valueFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(),
 	                                             12.0f * scale, juce::Font::plain));
@@ -3029,7 +3200,7 @@ void D110EditorPane::paintMonitor(juce::Graphics &g, juce::Rectangle<float> area
 		g.drawRoundedRectangle(r.reduced(0.5f), 2.0f, 1.0f);
 	}
 	area.removeFromTop(4.0f);
-	g.setColour(kEdDim());
+	g.setColour(dimText);
 	g.setFont(valueFont);
 	g.drawText(juce::String(busy) + " of " + juce::String(D110CoreType::kNumHardwareVoices)
 	               + " busy   -   and the sound engine has "
@@ -3055,7 +3226,7 @@ void D110EditorPane::paintMonitor(juce::Graphics &g, juce::Rectangle<float> area
 		const juce::Rectangle<float> r(parts.getX() + pw * float(p), parts.getY(),
 		                               pw - 8.0f, 26.0f);
 		drawBox(g, r, on);
-		g.setColour(on ? kEdValue() : kEdDim());
+		g.setColour(on ? kEdValue() : dimText);
 		g.setFont(valueFont);
 		g.drawText(juce::String(partLabel(p)) + (on ? ": sounding" : ": -"),
 		           r.reduced(6.0f, 0.0f), juce::Justification::centredLeft);
@@ -3067,7 +3238,7 @@ void D110EditorPane::paintMonitor(juce::Graphics &g, juce::Rectangle<float> area
 	g.setColour(kEdLabel());
 	g.setFont(labelFont);
 	g.drawText("THE BRIDGE", area.removeFromTop(16.0f), juce::Justification::centredLeft);
-	g.setColour(kEdDim());
+	g.setColour(dimText);
 	g.setFont(valueFont);
 	g.drawText("mirror messages to the engine: "
 	               + juce::String(juce::int64(processor.getCore().sysexEmitted()))
@@ -3086,7 +3257,7 @@ void D110EditorPane::paintMonitor(juce::Graphics &g, juce::Rectangle<float> area
 	// 32000 Hz (MT32EMU_SAMPLE_RATE) - the sound engine's SampleRateConverter always converts
 	// from that to whatever this line shows, so a wrong value here would explain a constant
 	// pitch/speed shift with no MIDI event involved at all.
-	g.setColour(kEdDim());
+	g.setColour(dimText);
 	g.setFont(valueFont);
 	g.drawText("host sample rate: " + juce::String(processor.getSampleRate(), 0) + " Hz",
 	           area.removeFromTop(18.0f), juce::Justification::centredLeft);
@@ -3096,7 +3267,7 @@ void D110EditorPane::paintMonitor(juce::Graphics &g, juce::Rectangle<float> area
 	// release (munt/mt32emu/src/Part.cpp) increments this every time it fires. Should stay at
 	// 0 most sessions; if it climbs right when a note gets stuck, that's the mechanism.
 	const uint32_t abortFallbacks = processor.engineAbortFallbackCount();
-	g.setColour(abortFallbacks > 0 ? kEdValue() : kEdDim());
+	g.setColour(abortFallbacks > 0 ? kEdValue() : dimText);
 	g.drawText("stuck-voice guard fired: " + juce::String(juce::int64(abortFallbacks)) + " time(s) this session",
 	           area.removeFromTop(18.0f), juce::Justification::centredLeft);
 	// Second candidate for the same stuck-note report, added once the first (above) came back
@@ -3105,7 +3276,7 @@ void D110EditorPane::paintMonitor(juce::Graphics &g, juce::Rectangle<float> area
 	// (most likely a note-off) because it hadn't read the previous one yet when the next
 	// arrived - independent of munt entirely.
 	const uint32_t serialOverruns = processor.getCore().serialOverrunCount();
-	g.setColour(serialOverruns > 0 ? kEdValue() : kEdDim());
+	g.setColour(serialOverruns > 0 ? kEdValue() : dimText);
 	g.drawText("MIDI UART overruns (byte lost, firmware too slow to read it): "
 	               + juce::String(juce::int64(serialOverruns)) + " time(s) this session",
 	           area.removeFromTop(18.0f), juce::Justification::centredLeft);
@@ -3137,11 +3308,11 @@ void D110EditorPane::paintMonitor(juce::Graphics &g, juce::Rectangle<float> area
 			                          : ("status " + juce::String::toHexString(e.status));
 			break;
 		}
-		g.setColour(i == 0 ? kEdValue() : kEdDim());
+		g.setColour(i == 0 ? kEdValue() : dimText);
 		g.drawText(text, area.removeFromTop(lineH), juce::Justification::centredLeft);
 	}
 	if (n == 0) {
-		g.setColour(kEdDim());
+		g.setColour(dimText);
 		g.drawText("nothing received yet", area.removeFromTop(lineH),
 		           juce::Justification::centredLeft);
 	}

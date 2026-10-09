@@ -3048,6 +3048,8 @@ void D110AudioProcessor::getStateInformation(juce::MemoryBlock &destData) {
 	xml->setAttribute("gridRowHeight", gridRowHeight);
 	// See getCompactPanelMode().
 	xml->setAttribute("compactPanelMode", compactPanelMode ? 1 : 0);
+	// See getLcdColor().
+	xml->setAttribute("lcdColor", lcdColor);
 	// See D110SequencerHost::getRetroKeyBindings().
 	xml->setAttribute("retroKeyBindings", retroKeyBindings);
 	// See D110SequencerHost::getRetroLcdCompactMode().
@@ -3226,6 +3228,7 @@ void D110AudioProcessor::setStateInformation(const void *data, int sizeInBytes) 
 		setSequencerGridMode(xml->getIntAttribute("sequencerGridMode", sequencerGridMode ? 1 : 0) != 0);
 	gridRowHeight = xml->getIntAttribute("gridRowHeight", gridRowHeight);
 	setCompactPanelMode(xml->getIntAttribute("compactPanelMode", compactPanelMode ? 1 : 0) != 0);
+	setLcdColor(xml->getIntAttribute("lcdColor", lcdColor));
 	setRetroKeyBindings(xml->getStringAttribute("retroKeyBindings", retroKeyBindings));
 	setRetroLcdCompactMode(xml->getIntAttribute("retroLcdCompactMode", retroLcdCompactMode ? 1 : 0) != 0);
 	setLastDialogDir(juce::File(xml->getStringAttribute("lastDialogDir", lastDialogDir.getFullPathName())));
