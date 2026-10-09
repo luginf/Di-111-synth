@@ -2,7 +2,7 @@
 # Packs a built Standalone binary into an AppImage.
 #
 #   scripts/make_appimage.sh --name Di-111 --binary path/to/Di-111 --icon docs/app_icon.png \
-#       --comment "..." [--version 0.9.5] [--out dir] [--bundle libjack.so.0 --bundle libdb-5.3.so]
+#       --comment "..." [--version 0.9.5] [--out dir] [--update-info "gh-releases-zsync|user|repo|latest|Name-*x86_64.AppImage.zsync"] [--bundle libjack.so.0 --bundle libdb-5.3.so]
 #
 # Run it on the OLDEST still-supported Ubuntu LTS (the CI job uses an ubuntu:22.04 container, see
 # .github/workflows/build-linux-appimage.yml): an AppImage uses the host's C library, so what it needs is
@@ -13,7 +13,7 @@
 # freetype, fontconfig...) is expected from the host, as for any AppImage.
 set -euo pipefail
 
-NAME="" BINARY="" ICON="" COMMENT="" VERSION="" OUT="." BUNDLE=()
+NAME="" BINARY="" ICON="" COMMENT="" VERSION="" OUT="." UPDATE_INFO="" BUNDLE=()
 while [ $# -gt 0 ]; do
 	case "$1" in
 	--name) NAME="$2"; shift 2 ;;
@@ -22,6 +22,7 @@ while [ $# -gt 0 ]; do
 	--comment) COMMENT="$2"; shift 2 ;;
 	--version) VERSION="$2"; shift 2 ;;
 	--out) OUT="$2"; shift 2 ;;
+	--update-info) UPDATE_INFO="$2"; shift 2 ;;
 	--bundle) BUNDLE+=("$2"); shift 2 ;;
 	*) echo "unknown argument: $1" >&2; exit 2 ;;
 	esac
@@ -87,7 +88,15 @@ if [ -z "$TOOL" ]; then
 fi
 
 TARGET="$OUT/$NAME-x86_64.AppImage"
-ARCH=x86_64 "$TOOL" "${TOOL_ARGS[@]}" --no-appstream "$APPDIR" "$TARGET"
+# Update information (gh-releases-zsync: AppImageUpdate looks at the latest non-prerelease GitHub release for a
+# *.AppImage.zsync asset). appimagetool embeds it and, when zsyncmake is installed, writes $TARGET.zsync into the
+# current directory: that file must be published next to the AppImage in the release.
+UPDATE_ARGS=()
+if [ -n "$UPDATE_INFO" ]; then
+	command -v zsyncmake >/dev/null || { echo "zsyncmake is needed to build the .zsync file" >&2; exit 1; }
+	UPDATE_ARGS=(-u "$UPDATE_INFO")
+fi
+(cd "$OUT" && ARCH=x86_64 "$TOOL" "${TOOL_ARGS[@]}" --no-appstream "${UPDATE_ARGS[@]}" "$APPDIR" "$TARGET")
 echo "built $TARGET"
 echo "glibc symbol versions it needs (should not exceed the build system's LTS):"
 objdump -T "$APPDIR/usr/bin/$NAME" | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1
