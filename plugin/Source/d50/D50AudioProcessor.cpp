@@ -414,7 +414,7 @@ juce::AudioProcessorEditor *D50AudioProcessor::createEditor() { return new D50Ed
 
 void D50AudioProcessor::getStateInformation(juce::MemoryBlock &destData) {
     juce::MemoryOutputStream out(destData, true);
-    out.writeInt(7);  // format version
+    out.writeInt(8);  // format version
     out.writeInt(bridgeReady ? bridge.patch() : 0);
     out.writeInt(volumePercent);
     out.writeInt(keyboardMidiChannel);
@@ -441,6 +441,8 @@ void D50AudioProcessor::getStateInformation(juce::MemoryBlock &destData) {
         seqXml.setAttribute("loopMode", static_cast<int>(sequencerEngine.getLoopMode()));
         out.writeString(seqXml.toString());
     }
+    out.writeBool(patchEditFolded);
+    out.writeBool(sequencerFolded);
 }
 
 void D50AudioProcessor::setStateInformation(const void *data, int sizeInBytes) {
@@ -483,6 +485,11 @@ void D50AudioProcessor::setStateInformation(const void *data, int sizeInBytes) {
                 static_cast<d110seq::QuantizeMode>(seqXml->getIntAttribute("quantizeMode", 0)));
             sequencerEngine.setLoopMode(static_cast<d110seq::LoopMode>(seqXml->getIntAttribute("loopMode", 0)));
         }
+    }
+    if (version >= 8) {
+        const bool patchEdit = in.readBool();
+        const bool sequencer = in.readBool();
+        setFolds(patchEdit, sequencer);
     }
     if (bridgeReady) {
         bridge.selectPatch(patch);

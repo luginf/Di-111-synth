@@ -53,7 +53,7 @@ public:
 	// - callers that don't go through the host's persisted value (Android's Options menu, still
 	// session-only) pass n directly without touching that accessor.
 	void setNumOctaves(int n) {
-		n = juce::jlimit(1, 4, n);
+		n = juce::jlimit(0, 4, n); // 0 = resizable: fixed key width, as many keys as the width allows
 		if (n == numOctaves) return;
 		numOctaves = n;
 		rebuildKeys();
@@ -81,6 +81,7 @@ public:
 private:
 	int numOctaves = 2;
 	static constexpr int kLowestNote = 48; // C3
+	static constexpr float kResizableKeyW = 34.0f; // white key width in resizable mode
 
 	enum class PcLayout { qwerty, azerty };
 

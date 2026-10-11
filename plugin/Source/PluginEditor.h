@@ -714,6 +714,8 @@ public:
 	// Width the window opens at: the Standalone creates it 128x128 first, which the constraint above clamps to the
 	// minimum, so without this it would open at kMinWindowWidth (it used to open at the old minimum, 900).
 	static constexpr int kStartWindowWidth = 900;
+	bool sizeTracking = false; // set once the constructor has chosen the initial size
+	int sizeSaveToken = 0;
 	static constexpr float kMinKeyboardPaneRefH = 70.0f;
 	static constexpr float kMaxKeyboardPaneRefH = 400.0f;
 	// Handle band above the sequencer drawer - same slim treatment as the keyboard's, and the

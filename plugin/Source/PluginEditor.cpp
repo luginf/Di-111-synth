@@ -4277,6 +4277,10 @@ D110AudioProcessorEditor::D110AudioProcessorEditor(D110AudioProcessor &p)
 	editorPaneRefH = juce::jlimit(kMinPaneRefH, kMaxPaneRefH, p.getEditorPaneRefH());
 	keyboardPaneRefH = juce::jlimit(kMinKeyboardPaneRefH, kMaxKeyboardPaneRefH, p.getKeyboardPaneRefH());
 	sequencerPaneRefH = juce::jlimit(kMinSequencerPaneRefH, kMaxSequencerPaneRefH, p.getSequencerPaneRefH());
+	// Drawers open/closed as left last time (read before the first applySize(), like the heights).
+	expansion = expansionTarget = p.getEditorDrawerOpen() ? 1.0f : 0.0f;
+	keyboardExpansion = keyboardExpansionTarget = p.getKeyboardDrawerOpen() ? 1.0f : 0.0f;
+	sequencerExpansion = sequencerExpansionTarget = p.getSequencerDrawerOpen() ? 1.0f : 0.0f;
 
 	addAndMakeVisible(panel);
 	addAndMakeVisible(editorPane);
@@ -4343,7 +4347,12 @@ D110AudioProcessorEditor::D110AudioProcessorEditor(D110AudioProcessor &p)
 	setConstrainer(&constrainer);
 
 	setResizable(true, true);
-	setSize(1500, int(totalRefHeight() * (1500.0f / float(D110Panel::currentRefW(processor.getCompactPanelMode()))) + 0.5f));
+	// Width kept from the previous session / project, when there is one (GitHub issue #9 on JiV-881).
+	const bool restoredWidth = processor.editorWidth >= kMinWindowWidth;
+	const int startW = restoredWidth ? juce::jmin(processor.editorWidth, 8000) : 1500;
+	setSize(startW, int(totalRefHeight() * (float(startW) / float(D110Panel::currentRefW(processor.getCompactPanelMode()))) + 0.5f));
+	sizeTracking = true;
+	if (!restoredWidth)
 	juce::MessageManager::callAsync([safe = juce::Component::SafePointer<D110AudioProcessorEditor>(this)] {
 		auto *self = safe.getComponent();
 		if (self == nullptr || self->getWidth() >= kStartWindowWidth) return;
@@ -4629,6 +4638,7 @@ void D110AudioProcessorEditor::mouseDown(const juce::MouseEvent &e)
 		// so; and "refuse to close the drawer while the card is out" is a prohibition where a
 		// movement is enough.
 		if (expansionTarget < 0.5f && card.isOut()) card.insert();
+		processor.setDrawersOpen(expansionTarget > 0.5f, keyboardExpansionTarget > 0.5f, sequencerExpansionTarget > 0.5f);
 		applySize();
 		return;
 	}
@@ -4736,6 +4746,7 @@ void D110AudioProcessorEditor::mouseUp(const juce::MouseEvent &)
 		// sequencer drawer's toggle, exactly as before it gained its second role.
 		sequencerExpansionTarget = (sequencerExpansionTarget > 0.5f) ? 0.0f : 1.0f;
 		sequencerExpansion = sequencerExpansionTarget;
+		processor.setDrawersOpen(expansionTarget > 0.5f, keyboardExpansionTarget > 0.5f, sequencerExpansionTarget > 0.5f);
 		applySize();
 		return;
 	}
@@ -4752,6 +4763,7 @@ void D110AudioProcessorEditor::mouseUp(const juce::MouseEvent &)
 	// keyboard drawer's toggle, exactly as before this band gained its second role.
 	keyboardExpansionTarget = (keyboardExpansionTarget > 0.5f) ? 0.0f : 1.0f;
 	keyboardExpansion = keyboardExpansionTarget;
+	processor.setDrawersOpen(expansionTarget > 0.5f, keyboardExpansionTarget > 0.5f, sequencerExpansionTarget > 0.5f);
 	applySize();
 }
 
@@ -4816,6 +4828,14 @@ bool D110AudioProcessorEditor::keyPressed(const juce::KeyPress &key)
 
 void D110AudioProcessorEditor::resized()
 {
+	// Remember the width once a drag has settled (not once per pixel).
+	if (sizeTracking && getWidth() > 0) {
+		const int token = ++sizeSaveToken;
+		juce::Timer::callAfterDelay(600, [safe = juce::Component::SafePointer<D110AudioProcessorEditor>(this), token] {
+			if (safe != nullptr && token == safe->sizeSaveToken) safe->processor.editorWidth = safe->getWidth();
+		});
+	}
+
 	const float s = float(getWidth()) / float(D110Panel::currentRefW(processor.getCompactPanelMode()));
 	panel.setBounds(0, 0, D110Panel::currentRefW(processor.getCompactPanelMode()), D110Panel::kRefH);
 	panel.setTransform(juce::AffineTransform::scale(s));

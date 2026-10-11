@@ -3035,6 +3035,7 @@ void D110AudioProcessor::getStateInformation(juce::MemoryBlock &destData) {
 	xml->setAttribute("kbPcInput", keyboardPcInput ? 1 : 0);
 	xml->setAttribute("kbPcLayout", keyboardPcLayout);
 	xml->setAttribute("kbNumOctaves", keyboardNumOctaves);
+	xml->setAttribute("editorWidth", editorWidth);
 
 	// Utility tab's THEME toggle - see getUiThemeLight().
 	xml->setAttribute("uiThemeLight", uiThemeLight ? 1 : 0);
@@ -3062,6 +3063,9 @@ void D110AudioProcessor::getStateInformation(juce::MemoryBlock &destData) {
 	// Keyboard/sequencer drawers' own heights - see getKeyboardPaneRefH()/getSequencerPaneRefH().
 	xml->setAttribute("keyboardPaneRefH", keyboardPaneRefH);
 	xml->setAttribute("sequencerPaneRefH", sequencerPaneRefH);
+	xml->setAttribute("editorDrawerOpen", editorDrawerOpen);
+	xml->setAttribute("keyboardDrawerOpen", keyboardDrawerOpen);
+	xml->setAttribute("sequencerDrawerOpen", sequencerDrawerOpen);
 
 	// The D-20-style sequencer's own tracks and transport settings, packed the same way
 	// the firmware NVRAM is above - so a project brings the whole sequencer back exactly
@@ -3219,6 +3223,7 @@ void D110AudioProcessor::setStateInformation(const void *data, int sizeInBytes) 
 	setKeyboardPcInputEnabled(xml->getIntAttribute("kbPcInput", keyboardPcInput ? 1 : 0) != 0);
 	setKeyboardPcLayout(xml->getIntAttribute("kbPcLayout", keyboardPcLayout));
 	setKeyboardNumOctaves(xml->getIntAttribute("kbNumOctaves", keyboardNumOctaves));
+	editorWidth = xml->getIntAttribute("editorWidth", editorWidth);
 
 	setUiThemeLight(xml->getIntAttribute("uiThemeLight", uiThemeLight ? 1 : 0) != 0);
 	setUiThemeFollowSystem(xml->getIntAttribute("uiThemeFollowSystem", uiThemeFollowSystem ? 1 : 0) != 0);
@@ -3235,6 +3240,9 @@ void D110AudioProcessor::setStateInformation(const void *data, int sizeInBytes) 
 	setEditorPaneRefH(float(xml->getDoubleAttribute("editorPaneRefH", double(editorPaneRefH))));
 	setKeyboardPaneRefH(float(xml->getDoubleAttribute("keyboardPaneRefH", double(keyboardPaneRefH))));
 	setSequencerPaneRefH(float(xml->getDoubleAttribute("sequencerPaneRefH", double(sequencerPaneRefH))));
+	setDrawersOpen(xml->getBoolAttribute("editorDrawerOpen", editorDrawerOpen),
+	               xml->getBoolAttribute("keyboardDrawerOpen", keyboardDrawerOpen),
+	               xml->getBoolAttribute("sequencerDrawerOpen", sequencerDrawerOpen));
 
 	// The sequencer's own tracks and transport settings - see the matching comment in
 	// getStateInformation. A project saved before this existed simply has none of these

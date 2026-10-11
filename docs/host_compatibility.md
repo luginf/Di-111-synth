@@ -19,8 +19,8 @@ The same VST3 build behaves differently across hosts:
 
 | Host | Status |
 | --- | --- |
-| Ardour | Notes work. Pitch bend did not reach the plugin until the VST3 MIDI-CC shim was re-enabled (issue #8): VST3 hosts deliver bend/modulation as parameter changes through IMidiMapping, not as MIDI events. To be re-verified in Ardour. |
-| Carla | Sound is pitched up; hardware pitch bend has no effect. Also: Carla doesn't forward live SysEx to hosted VST3 plugins, so a live external editor (e.g. Edisyn) won't reach the plugin there - use file-based import, or a host that does forward it. |
+| Ardour | Verified (v0.9.5-fixes22): notes and pitch bend work. Pitch bend used to be lost until the VST3 MIDI-CC shim was re-enabled (issue #8): VST3 hosts deliver bend/modulation as parameter changes through IMidiMapping, not as MIDI events. |
+| Carla | Verified (v0.9.5-fixes22): the old "pitched up" detune and dead pitch bend are fixed (the initial Pitch Bend 0 a parameter reset produces is filtered, see below). Carla still doesn't forward live SysEx to hosted VST3 plugins, so a live external editor (e.g. Edisyn) won't reach the plugin there - use file-based import, or a host that does forward it. |
 | FL Studio | Pitch bend/modulation not delivered before the same fix (issue #8). Needs re-testing. |
 | Gig Performer | Bend and modulation work. A fixed pitch offset of about -3.3 semitones was reported (issue #8); sample rate is ruled out (the same note renders at the same pitch at 44.1/48/96 kHz), likely a stray initial Pitch Bend 0, now filtered. Needs re-testing. |
 | Qtractor | Plugin loads and shows a patch on the LCD, but produces no audio. |

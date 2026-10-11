@@ -208,6 +208,14 @@ public:
     // keyboard config above.
     bool getUiFontScaleBig() const { return uiFontScaleBig; }
     void setUiFontScaleBig(bool big) { uiFontScaleBig = big; }
+    // Folded state of the editor's two FoldHandles, saved with the state (format version 8) so a
+    // fold done by hand survives a relaunch. Defaults: patch edit open, sequencer folded.
+    bool getPatchEditFolded() const { return patchEditFolded; }
+    bool getSequencerFolded() const { return sequencerFolded; }
+    void setFolds(bool patchEdit, bool sequencer) {
+        patchEditFolded = patchEdit;
+        sequencerFolded = sequencer;
+    }
     bool isNoteActive(int note) const override {
         return note >= 0 && note < 128 && noteActiveFlags[static_cast<size_t>(note)].load(std::memory_order_relaxed);
     }
@@ -267,6 +275,8 @@ private:
     int keyboardPcLayout = 0;
     int keyboardNumOctaves = 2;
     bool uiFontScaleBig = false;
+    bool patchEditFolded = false;
+    bool sequencerFolded = true;
     std::array<std::atomic<bool>, 128> noteActiveFlags{};
 
     // The sequencer - see the D110SequencerHost overrides above for how it's wired in.

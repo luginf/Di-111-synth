@@ -342,7 +342,7 @@ public:
 	int getKeyboardPcLayout() const override { return keyboardPcLayout; }
 	void setKeyboardPcLayout(int layout) override { keyboardPcLayout = juce::jlimit(0, 1, layout); }
 	int getKeyboardNumOctaves() const override { return keyboardNumOctaves; }
-	void setKeyboardNumOctaves(int numOctaves) override { keyboardNumOctaves = juce::jlimit(1, 4, numOctaves); }
+	void setKeyboardNumOctaves(int numOctaves) override { keyboardNumOctaves = juce::jlimit(0, 4, numOctaves); } // 0 = resizable
 	// See D110KeyboardHost.h and handleIncomingMidiMessage(const juce::MidiMessage &)'s own
 	// comment for where remoteNoteActive actually gets written.
 	bool isNoteActive(int note) const override {
@@ -444,6 +444,17 @@ public:
 	void setKeyboardPaneRefH(float refH) { keyboardPaneRefH = refH; }
 	float getSequencerPaneRefH() const { return sequencerPaneRefH; }
 	void setSequencerPaneRefH(float refH) { sequencerPaneRefH = refH; }
+	// Open/closed state of the three drawers (editor, keyboard, sequencer), saved with the heights
+	// above so a drawer folded or unfolded by hand stays that way on the next launch. Defaults
+	// mirror the editor's own: editor closed, keyboard open, sequencer closed.
+	bool getEditorDrawerOpen() const { return editorDrawerOpen; }
+	bool getKeyboardDrawerOpen() const { return keyboardDrawerOpen; }
+	bool getSequencerDrawerOpen() const { return sequencerDrawerOpen; }
+	void setDrawersOpen(bool editor, bool keyboard, bool sequencer) {
+		editorDrawerOpen = editor;
+		keyboardDrawerOpen = keyboard;
+		sequencerDrawerOpen = sequencer;
+	}
 
 	// The D-20-style sequencer drawer's one way in: it owns its transport, its 9 tracks
 	// and its own MIDI-file/state (de)serialisation, and reads/writes it directly - see
@@ -1018,6 +1029,11 @@ private:
 	int keyboardPcLayout = 0;
 	int keyboardNumOctaves = 2;
 
+public:
+	// Last editor width (project state), restored when the editor opens; 0 = never saved.
+	int editorWidth = 0;
+private:
+
 	// See isNoteActive() above - one flag per MIDI note number, written from the audio thread
 	// (handleIncomingMidiMessage(const juce::MidiMessage&), the single point every note
 	// reaching the firmware already passes through: host MIDI, the Standalone port, the
@@ -1054,6 +1070,9 @@ private:
 	// D110Keyboard::kRefH/D110SequencerPanel::kRefH's own defaults, same duplication reasoning.
 	float keyboardPaneRefH = 130.0f;
 	float sequencerPaneRefH = 347.0f;
+	bool editorDrawerOpen = false;
+	bool keyboardDrawerOpen = true;
+	bool sequencerDrawerOpen = false;
 
 	// --- D-20-style sequencer ---------------------------------------------------
 	d110seq::D110SequencerEngine sequencerEngine;

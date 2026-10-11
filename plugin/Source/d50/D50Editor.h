@@ -124,10 +124,9 @@ private:
     // setSize()) with no animation or drag-resize. Two independent instances -
     // D50Editor::patchEditFold (Structure/Balance/PartialPanels/the scrolling ParamColumn
     // grid) and ::sequencerFold (the D110SequencerPanel drawer) - hence the constructor-time
-    // label rather than a hardcoded one. Session-only, like D110EditorPane's own open/closed
-    // state (see D110AudioProcessorEditor::setExpanded()'s own comment - only its HEIGHT is
-    // persisted, never whether it's open) - both reset to their own default (patchEditFold
-    // open, sequencerFold closed - see D50Editor's own constructor) on every relaunch.
+    // label rather than a hardcoded one. Their open/closed state is saved with the plugin state
+    // (format 8, D50AudioProcessor::setFolds()), like D110AudioProcessorEditor's drawers; defaults
+    // on a first launch are patchEditFold open, sequencerFold closed - see D50Editor's constructor.
     class FoldHandle : public juce::Component {
     public:
         explicit FoldHandle(juce::String label) : label_(std::move(label)) {}

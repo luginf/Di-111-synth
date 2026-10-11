@@ -429,12 +429,14 @@ D50Editor::D50Editor(D50AudioProcessor &p)
         // setSize() triggers resized() on its own, same as D110AudioProcessorEditor's own
         // drawer resize - see its applySize()'s own comment.
         updatePatchEditFoldVisibility();
+        processor.setFolds(patchEditFold.isFolded(), sequencerFold.isFolded());
         setSize(getWidth(), computeContentHeight());
     };
 
     addAndMakeVisible(sequencerFold);
     sequencerFold.onToggle = [this] {
         updateSequencerFoldVisibility();
+        processor.setFolds(patchEditFold.isFolded(), sequencerFold.isFolded());
         setSize(getWidth(), computeContentHeight());
     };
 
@@ -559,8 +561,10 @@ D50Editor::D50Editor(D50AudioProcessor &p)
     addAndMakeVisible(keyboard);
 
     addAndMakeVisible(sequencerPanel);
-    // Closed by default - see sequencerFold's own member comment.
-    sequencerFold.setFolded(true);
+    // Folded or not as left last time (sequencer folded, patch edit open, on a first launch).
+    patchEditFold.setFolded(processor.getPatchEditFolded());
+    sequencerFold.setFolded(processor.getSequencerFolded());
+    updatePatchEditFoldVisibility();
     updateSequencerFoldVisibility();
 
     setResizable(true, true);
