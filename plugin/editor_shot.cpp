@@ -123,6 +123,18 @@ int main(int argc, char **argv) {
 		// The component's timer does not run here - there is no message queue - so the unit's
 		// memory is fetched manually, by the same refresh as in normal operation.
 		pane.refreshFromInstrument();
+		// D110_SHOT_TOOLTIPS: sweep the pane on a grid and report which distinct hover texts
+		// tooltipAt() hands out (UTILITY only), and that the tab strip itself gives none.
+		if (std::getenv("D110_SHOT_TOOLTIPS") != nullptr) {
+			juce::StringArray seen;
+			for (int y = 0; y < height; y += 6)
+				for (int x = 0; x < width; x += 6) {
+					const auto t = pane.tooltipAt({ float(x), float(y) });
+					if (t.isNotEmpty()) seen.addIfNotAlreadyThere(t);
+				}
+			std::printf("tooltips on %s: %d distinct, tab strip gives '%s'\n", kTabs[i], seen.size(),
+			            pane.tooltipAt({ 60.0f, 10.0f }).toRawUTF8());
+		}
 		const juce::File out = juce::File::getCurrentWorkingDirectory()
 			.getChildFile(juce::String("editor_") + kTabs[i] + ".png");
 		if (writeShot(pane, out)) ++ok;

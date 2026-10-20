@@ -55,12 +55,12 @@ const Palette kDark {
 
 	juce::Colour(0xff6ab81f), // seqActiveFill
 	juce::Colour(0xff0a0a0c), // seqActiveText
-	juce::Colour(0xff3a464d), // seqInactiveFill
-	juce::Colour(0xffb8b8c0), // seqInactiveText
+	juce::Colour(0xff3f4d56), // seqInactiveFill
+	juce::Colour(0xffe6e8ec), // seqInactiveText
 	juce::Colour(0xffd98a1f), // seqMetroDownbeat
 	juce::Colour(0xff4fb81f), // seqMetroBeat
 	juce::Colour(0xff3f7a10), // seqTrackFilled
-	juce::Colour(0xff3a464d), // seqTrackEmpty
+	juce::Colour(0xff2f3b42), // seqTrackEmpty
 	juce::Colour(0xffe0392a), // seqArmDot
 };
 

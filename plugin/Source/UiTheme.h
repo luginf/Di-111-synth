@@ -79,6 +79,20 @@ inline constexpr float kBigScaleFactor = 1.35f;
 FontScale getFontScale();
 void setFontScale(FontScale scale);
 
+// Drawer text weights (2026-10-20, Alan: the drawer read as "all bold" next to the JiV-881).
+// The JiV-881 uses JUCE's default sans, plain, at 13 px, with bold only on 15-18 px section
+// headings; this drawer had bold everywhere at 11-12 px, which smears on FreeType. Body and
+// caption text is plain; only section headings get bold. Not a global LookAndFeel default on
+// purpose: that would also restyle the sequencer/keyboard drawers and the popup menus.
+// Background of the sequencer drawers: near-black on the dark theme (the JiV-881's sequencer
+// drawer is nearly black with bright text; this one was the drawer's blue-grey, with grey text
+// on it, and read as low contrast - Alan, 2026-10-20). The light theme keeps its own background.
+inline juce::Colour sequencerBackground() {
+	return getTheme() == Theme::Light ? palette().panelBg : palette().panelBg.darker(0.62f);
+}
+inline juce::Font bodyFont(float size) { return juce::Font(juce::FontOptions(size)); }
+inline juce::Font headingFont(float size) { return juce::Font(juce::FontOptions(size, juce::Font::bold)); }
+
 // A juce::LookAndFeel driven by palette() - keeps stock JUCE components (AlertWindow,
 // AudioDeviceSelectorComponent, PopupMenu, ComboBox, ...) themed consistently with the
 // hand-painted parts of the UI, which read palette() directly in their own paint()

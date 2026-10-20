@@ -1798,7 +1798,7 @@ void D110SequencerRetroPanel::resized() {
 
 void D110SequencerRetroPanel::paint(juce::Graphics &g) {
 	const auto &pal = d110ui::palette();
-	g.fillAll(pal.panelBg);
+	g.fillAll(d110ui::sequencerBackground());
 	paintLcd(g, lcdBounds);
 	paintButtons(g);
 }

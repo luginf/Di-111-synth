@@ -227,7 +227,7 @@ const Skin kSkinAlt = {
 	627.4f, 15.40f, 101.0f, 28.16f, 2.886f,
 	1884.0f, 104.0f, 71.0f, 99.0f,
 	1880.0f, 100.0f, 79.0f, 107.0f,
-	1884.0f, 52.0f, 77.0f, 6.0f,
+	1909.0f, 53.0f, 26.0f, 4.0f,
 	381.6f, 156.9f, 34.0f,
 	-141.9f, 143.17f,
 	6.5f, 25.5f, 3.4f,
@@ -1131,9 +1131,16 @@ constexpr float kToneEnvH = 56.0f;
 inline juce::Colour kEdBack() { return d110ui::palette().panelBg; }
 inline juce::Colour kEdBox() { return d110ui::palette().box; }
 inline juce::Colour kEdBorder() { return d110ui::palette().boxBorder; }
-inline juce::Colour kEdLabel() { return d110ui::palette().label; }
+// Full-contrast text: near-white on the dark theme, near-black on the light one. The palette's
+// own label/dim greys were too faint next to the JiV-881's near-white settings text (Alan,
+// 2026-10-20: "texte trop petit et peu contrasté"), so labels and secondary text are now a
+// blend of the palette colour and this, rather than the palette colour alone.
+inline juce::Colour kEdText() {
+	return d110ui::getTheme() == d110ui::Theme::Light ? juce::Colour(0xff161a1e) : juce::Colour(0xffeef1f4);
+}
+inline juce::Colour kEdLabel() { return d110ui::palette().label.interpolatedWith(kEdText(), 0.40f); }
 inline juce::Colour kEdValue() { return d110ui::palette().value; }
-inline juce::Colour kEdDim() { return d110ui::palette().dim; }
+inline juce::Colour kEdDim() { return d110ui::palette().dim.interpolatedWith(kEdText(), 0.45f); }
 
 // Eight voice parts and rhythm - exactly the nine for which the unit has a record in
 // Timbre Temporary.
@@ -1651,7 +1658,7 @@ void D110EditorPane::paintToneEnvelopes(juce::Graphics &g) {
 		g.setColour(kEdBorder());
 		g.drawRoundedRectangle(b.reduced(0.5f), 3.0f, 1.0f);
 		g.setColour(kEdDim());
-		g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
+		g.setFont(d110ui::bodyFont(11.0f));
 		g.drawText(s.title, b.reduced(5.0f, 1.0f), juce::Justification::topLeft);
 
 		bool ok = s.startLevel >= 0 && s.release.first >= 0 && s.release.second >= 0;
@@ -2194,226 +2201,248 @@ void D110EditorPane::layoutUtility(juce::Rectangle<float> area) {
 	area.translate(0.0f, -utilityScrollOffset);
 	const float w = area.getWidth();
 
-	labels.push_back({ area.removeFromTop(15.0f), "MIDI PANIC", true });
-	{
-		auto row = area.removeFromTop(28.0f);
-		buttons.push_back({ row.removeFromLeft(150.0f), "MIDI PANIC", 9 });
-		labels.push_back({ row.reduced(12.0f, 0.0f),
-		                   "kills every note currently sounding, on the engine and the "
-		                   "firmware both, on all 16 MIDI channels - for the rare case "
-		                   "something leaves notes hung", false });
-	}
-	area.removeFromTop(18.0f);
+	// Two columns when the drawer is wide enough (Alan, 2026-10-20: laid out like the JiV-881's
+	// settings tab), one stacked column otherwise. Both "columns" are plain cursors into the tall
+	// working rectangle, and the single-column case just points both at the same one.
+	const float fs = juce::jmax(1.0f, fontScale());
+	constexpr float kColGap = 28.0f;
+	const bool twoCols = w >= 820.0f;
+	const float colW = twoCols ? (w - kColGap) * 0.5f : w;
+	juce::Rectangle<float> colA = area.removeFromLeft(colW);
+	juce::Rectangle<float> colB;
+	if (twoCols) { area.removeFromLeft(kColGap); colB = area.removeFromLeft(colW); }
+	juce::Rectangle<float> &left = colA;
+	juce::Rectangle<float> &right = twoCols ? colB : colA;
 
-	labels.push_back({ area.removeFromTop(15.0f), "WINDOW SIZE", true });
+	// One group = a bold heading. One item = a title, the control row, and a one-line summary;
+	// the full explanation that used to run along the row lives in the tooltip (tip), on the
+	// summary and on the control alike.
+	auto group = [this, fs](juce::Rectangle<float> &col, const juce::String &title) {
+		col.removeFromTop(6.0f * fs);
+		Label l{ col.removeFromTop(24.0f * fs), title, true };
+		l.group = true;
+		labels.push_back(l);
+		col.removeFromTop(4.0f * fs);
+	};
+	auto itemTitle = [this, fs](juce::Rectangle<float> &col, const juce::String &title) {
+		labels.push_back({ col.removeFromTop(20.0f * fs), title, true });
+	};
+	auto summary = [this, fs](juce::Rectangle<float> &col, const juce::String &text, const juce::String &tip,
+	                          float lines = 1.0f) {
+		Label l{ col.removeFromTop(20.0f * fs * lines), text, false };
+		if (lines > 1.0f) l.just = juce::Justification::topLeft;
+		l.tip = tip;
+		labels.push_back(l);
+		col.removeFromTop(12.0f * fs);
+	};
+	// A control: bounds, caption, id and the same tip as its summary.
+	auto control = [this](juce::Rectangle<float> bounds, const juce::String &text, int id, const juce::String &tip) {
+		Button b{ bounds, text, id };
+		b.tip = tip;
+		buttons.push_back(b);
+	};
+
+	// ---- left column: how it looks, how it sequences, how it speaks MIDI
+	group(left, "DISPLAY");
+	itemTitle(left, "Options menu");
 	{
-		auto row = area.removeFromTop(28.0f);
+		const juce::String tip = "the same menu as a right-click anywhere on the front panel: "
+		                         "audio/MIDI settings, LCD colour, MIDI file import and the other "
+		                         "emulator-wide choices that the hardware itself has no control for";
+		control(left.removeFromTop(30.0f * fs).removeFromLeft(150.0f), "OPTIONS...", 28, tip);
+		summary(left, "Same menu as a right-click on the front panel", tip);
+	}
+	itemTitle(left, "Window size");
+	{
 		const int currentPercent = juce::roundToInt(float(getWidth()) / float(D110Panel::currentRefW(processor.getCompactPanelMode(), processor.getAltPanelView())) * 100.0f);
+		auto row = left.removeFromTop(30.0f * fs);
 		zoomBounds = row.removeFromLeft(150.0f);
-		buttons.push_back({ zoomBounds, juce::String(currentPercent) + "%", 10 });
-		labels.push_back({ row.reduced(12.0f, 0.0f),
-		                   "click to step through 50/75/100/125/150%, right-click to pick "
-		                   "one directly - a plain resize, not a window manager maximise "
-		                   "(see the panel notes on why)", false });
+		const juce::String tip = "click to step through 50/75/100/125/150%, right-click to pick "
+		                         "one directly - a plain resize, not a window manager maximise "
+		                         "(see the panel notes on why)";
+		control(zoomBounds, juce::String(currentPercent) + "%", 10, tip);
+		summary(left, "Click to step, right-click to pick a size", tip);
 	}
-	area.removeFromTop(18.0f);
-
-	labels.push_back({ area.removeFromTop(15.0f), "ALT VIEW", true });
+	itemTitle(left, "Panel size");
 	{
-		auto row = area.removeFromTop(28.0f);
-		buttons.push_back({ row.removeFromLeft(150.0f), processor.getAltPanelView() ? "ON" : "OFF", 27 });
-		labels.push_back({ row.reduced(12.0f, 0.0f),
-		                   "swaps the front panel for the alternative flat artwork, with a "
-		                   "classic VOLUME knob - and disables the MEMORY CARD (slot not "
-		                   "clickable, no card on screen)", false });
+		const juce::String tip = "compact splices out the Roland wordmark, PHONES jack and MEMORY CARD "
+		                         "slot and narrows the window to match, keeping only VOLUME, the LCD, "
+		                         "the button grid and POWER - the card becomes unreachable while it's "
+		                         "on, switch back to FULL to use it again";
+		control(left.removeFromTop(30.0f * fs).removeFromLeft(150.0f),
+		        processor.getCompactPanelMode() ? "COMPACT" : "FULL", 14, tip);
+		summary(left, "Full panel, or compact without PHONES and card", tip);
 	}
-	area.removeFromTop(18.0f);
-
-	labels.push_back({ area.removeFromTop(15.0f), "THEME", true });
+	itemTitle(left, "Alt view");
 	{
-		auto row = area.removeFromTop(28.0f);
-		buttons.push_back({ row.removeFromLeft(150.0f),
-		                    d110ui::getTheme() == d110ui::Theme::Light ? "LIGHT" : "DARK", 11 });
-		labels.push_back({ row.reduced(12.0f, 0.0f),
-		                   "click to switch this drawer's own colours between dark and "
-		                   "light - the photographed panel itself always keeps its own "
-		                   "colours", false });
+		const juce::String tip = "swaps the front panel for the alternative flat artwork, with a "
+		                         "classic VOLUME knob - and disables the MEMORY CARD (slot not "
+		                         "clickable, no card on screen)";
+		control(left.removeFromTop(30.0f * fs).removeFromLeft(150.0f), processor.getAltPanelView() ? "ON" : "OFF", 27, tip);
+		summary(left, "Flat alternative artwork, memory card disabled", tip);
 	}
-	area.removeFromTop(18.0f);
-
-	labels.push_back({ area.removeFromTop(15.0f), "FONT SIZE", true });
+	itemTitle(left, "Theme");
 	{
-		auto row = area.removeFromTop(28.0f);
-		buttons.push_back({ row.removeFromLeft(150.0f), processor.getUiFontScaleBig() ? "BIG" : "NORMAL", 26 });
-		labels.push_back({ row.reduced(12.0f, 0.0f),
-		                   "click to switch every label and control between normal size and "
-		                   "a larger one for HDPI screens with no OS-level scaling - "
-		                   "Standalone only, a VST3/AU host window can't be resized this way",
-		                   false });
+		const juce::String tip = "click to switch this drawer's own colours between dark and "
+		                         "light - the photographed panel itself always keeps its own "
+		                         "colours";
+		control(left.removeFromTop(30.0f * fs).removeFromLeft(150.0f),
+		        d110ui::getTheme() == d110ui::Theme::Light ? "LIGHT" : "DARK", 11, tip);
+		summary(left, "Dark or light colours for this drawer", tip);
 	}
-	area.removeFromTop(18.0f);
+	itemTitle(left, "Font size");
+	{
+		const juce::String tip = "click to switch every label and control between normal size and "
+		                         "a larger one for HDPI screens with no OS-level scaling - "
+		                         "Standalone only, a VST3/AU host window can't be resized this way";
+		control(left.removeFromTop(30.0f * fs).removeFromLeft(150.0f), processor.getUiFontScaleBig() ? "BIG" : "NORMAL", 26, tip);
+		summary(left, "Larger text for HDPI screens (standalone only)", tip);
+	}
 
 #if JucePlugin_Build_Standalone
-	labels.push_back({ area.removeFromTop(15.0f), "SEQUENCER", true });
+	group(left, "SEQUENCER");
+	itemTitle(left, "Sequencer view");
 	{
-		auto row = area.removeFromTop(28.0f);
-		buttons.push_back({ row.removeFromLeft(150.0f),
-		                    processor.getSequencerRetroMode() ? "RETRO"
-		                    : processor.getSequencerGridMode() ? "GRID" : "NORMAL", 13 });
-		labels.push_back({ row.reduced(12.0f, 0.0f),
-		                   "click to cycle the sequencer drawer between the mouse-driven "
-		                   "strip (NORMAL), the D-20-style LCD+buttons view (RETRO) and the "
-		                   "piano-roll grid editor (GRID) - same choice as the panel's own "
-		                   "right-click Options menu", false });
+		const juce::String tip = "click to cycle the sequencer drawer between the mouse-driven "
+		                         "strip (NORMAL), the D-20-style LCD+buttons view (RETRO) and the "
+		                         "piano-roll grid editor (GRID) - same choice as the panel's own "
+		                         "right-click Options menu";
+		control(left.removeFromTop(30.0f * fs).removeFromLeft(150.0f),
+		        processor.getSequencerRetroMode() ? "RETRO"
+		        : processor.getSequencerGridMode() ? "GRID" : "NORMAL", 13, tip);
+		summary(left, "Strip, D-20 style retro view, or piano-roll grid", tip);
 	}
-	area.removeFromTop(18.0f);
-
-	labels.push_back({ area.removeFromTop(15.0f), "QUANTIZE MODE", true });
+	itemTitle(left, "Quantize mode");
 	{
-		auto row = area.removeFromTop(28.0f);
+		const juce::String tip = "HARD moves a track's own recorded notes onto the grid for good; "
+		                         "SOFT leaves them exactly as played and only snaps them live during "
+		                         "playback - picking OFF on a track's own quantize control then plays "
+		                         "the original recording again, unchanged";
 		const bool soft = processor.getSequencer().getQuantizeMode() == d110seq::QuantizeMode::soft;
-		buttons.push_back({ row.removeFromLeft(150.0f), soft ? "SOFT" : "HARD", 15 });
-		labels.push_back({ row.reduced(12.0f, 0.0f),
-		                   "HARD moves a track's own recorded notes onto the grid for good; "
-		                   "SOFT leaves them exactly as played and only snaps them live during "
-		                   "playback - picking OFF on a track's own quantize control then plays "
-		                   "the original recording again, unchanged", false });
+		control(left.removeFromTop(30.0f * fs).removeFromLeft(150.0f), soft ? "SOFT" : "HARD", 15, tip);
+		summary(left, "HARD rewrites the notes, SOFT only snaps playback", tip);
 	}
-	area.removeFromTop(18.0f);
 #endif
 
-	labels.push_back({ area.removeFromTop(15.0f), "PANEL SIZE", true });
+	group(left, "MIDI");
+	itemTitle(left, "MIDI panic");
 	{
-		auto row = area.removeFromTop(28.0f);
-		buttons.push_back({ row.removeFromLeft(150.0f), processor.getCompactPanelMode() ? "COMPACT" : "FULL", 14 });
-		labels.push_back({ row.reduced(12.0f, 0.0f),
-		                   "compact splices out the Roland wordmark, PHONES jack and MEMORY CARD "
-		                   "slot and narrows the window to match, keeping only VOLUME, the LCD, "
-		                   "the button grid and POWER - the card becomes unreachable while it's "
-		                   "on, switch back to FULL to use it again", false });
+		const juce::String tip = "kills every note currently sounding, on the engine and the "
+		                         "firmware both, on all 16 MIDI channels - for the rare case "
+		                         "something leaves notes hung";
+		control(left.removeFromTop(30.0f * fs).removeFromLeft(150.0f), "MIDI PANIC", 9, tip);
+		summary(left, "Silences every hung note on all channels", tip);
 	}
-	area.removeFromTop(18.0f);
-
-	labels.push_back({ area.removeFromTop(15.0f), "DEBUG", true });
+	itemTitle(left, "Message on the instrument's own display");
 	{
-		auto row = area.removeFromTop(28.0f);
-		buttons.push_back({ row.removeFromLeft(150.0f),
-		                    processor.getDebugModeEnabled() ? "LOGGING ON" : "LOGGING OFF", 12 });
-		labels.push_back({ row.reduced(12.0f, 0.0f),
-		                   "when on, writes a running note-attempt tally to "
-		                   "~/d110_diagnostic_log.txt every few seconds - off by default, only "
-		                   "useful while chasing a real playback issue", false });
+		const juce::String tip = "twenty characters, as Roland's own command carries them - this "
+		                         "display shows the first sixteen";
+		auto row = left.removeFromTop(30.0f * fs);
+		control(row.removeFromLeft(juce::jmin(240.0f, colW * 0.55f)), {}, 3, tip);   // the entry field itself
+		row.removeFromLeft(10.0f);
+		control(row.removeFromLeft(100.0f), "SEND", 1, tip);
+		summary(left, "Up to 20 characters, the unit's LCD shows 16", tip);
 	}
-	area.removeFromTop(18.0f);
 
-	labels.push_back({ area.removeFromTop(15.0f), "ROM FOLDER", true });
+	// ---- right column: files and data, reference, advanced
+	group(right, "FILES");
+	itemTitle(right, "ROM folder");
 	{
-		auto row = area.removeFromTop(28.0f);
+		const juce::String tip = "click to pick a folder to search for the ROM files, instead of the "
+		                         "usual automatic locations (beside the plugin/binary, or its own data "
+		                         "folder) - right-click to go back to AUTO";
 		const auto custom = D110AudioProcessor::getCustomRomFolder();
-		romFolderBounds = row.removeFromLeft(220.0f);
-		buttons.push_back({ romFolderBounds, custom.isEmpty() ? juce::String("AUTO") : custom, 16 });
-		labels.push_back({ row.reduced(12.0f, 0.0f),
-		                   "click to pick a folder to search for the ROM files, instead of the "
-		                   "usual automatic locations (beside the plugin/binary, or its own data "
-		                   "folder) - right-click to go back to AUTO", false });
+		romFolderBounds = right.removeFromTop(30.0f * fs).removeFromLeft(juce::jmin(260.0f, colW));
+		control(romFolderBounds, custom.isEmpty() ? juce::String("AUTO") : custom, 16, tip);
+		summary(right, "ROM search folder (right-click: AUTO)", tip);
 	}
-	area.removeFromTop(18.0f);
-
-	labels.push_back({ area.removeFromTop(15.0f), "SOUNDBANKS FOLDER", true });
+	itemTitle(right, "Soundbanks folder");
 	{
-		auto row = area.removeFromTop(28.0f);
+		const juce::String tip = "click to pick the folder of SysEx patch libraries the SOUNDBANKS "
+		                         "tab's RESCAN button scans - right-click to clear";
 		const auto custom = D110AudioProcessor::getSoundbankSourceFolder();
-		soundbankFolderBounds = row.removeFromLeft(220.0f);
-		buttons.push_back({ soundbankFolderBounds,
-		                     custom.isEmpty() ? juce::String("NOT SET") : custom, 25 });
-		labels.push_back({ row.reduced(12.0f, 0.0f),
-		                   "click to pick the folder of SysEx patch libraries the SOUNDBANKS "
-		                   "tab's RESCAN button scans - right-click to clear", false });
+		soundbankFolderBounds = right.removeFromTop(30.0f * fs).removeFromLeft(juce::jmin(260.0f, colW));
+		control(soundbankFolderBounds, custom.isEmpty() ? juce::String("NOT SET") : custom, 25, tip);
+		summary(right, "SOUNDBANKS scan folder (right-click: clear)", tip);
 	}
-	area.removeFromTop(18.0f);
-
-	labels.push_back({ area.removeFromTop(15.0f), "MESSAGE ON THE INSTRUMENT'S OWN DISPLAY",
-	                   true });
+	itemTitle(right, "Import a bank");
 	{
-		auto row = area.removeFromTop(28.0f);
-		buttons.push_back({ row.removeFromLeft(w * 0.40f), {}, 3 });   // the entry field itself
+		const juce::String tip = "the file goes to the instrument whole, exactly as a librarian "
+		                         "would pour it into MIDI IN";
+		control(right.removeFromTop(30.0f * fs).removeFromLeft(juce::jmin(210.0f, colW)), "IMPORT SysEx / MIDI BANK", 2, tip);
+		summary(right, "Sends a SysEx or MIDI file to the instrument", tip);
+	}
+	itemTitle(right, "Export a bank");
+	{
+		const juce::String tip = "built straight from memory, instantly, rather than captured off a "
+		                         "live transfer - a real Roland dump, playable back in above or into "
+		                         "actual hardware over MIDI";
+		control(right.removeFromTop(30.0f * fs).removeFromLeft(juce::jmin(210.0f, colW)), "EXPORT SysEx BANK...", 7, tip);
+		summary(right, "Saves the instrument's memory as a SysEx bank", tip);
+	}
+	itemTitle(right, "Memory snapshot");
+	{
+		const juce::String tip = "every patch, timbre, system setting and the memory card, in one "
+		                         "file - loading one powers the instrument off and back on with that "
+		                         "memory in place";
+		auto row = right.removeFromTop(30.0f * fs);
+		const float bw = juce::jmin(150.0f, (colW - 10.0f) * 0.5f);
+		control(row.removeFromLeft(bw), "SAVE SNAPSHOT...", 5, tip);
 		row.removeFromLeft(10.0f);
-		buttons.push_back({ row.removeFromLeft(100.0f), "SEND", 1 });
-		labels.push_back({ row.reduced(12.0f, 0.0f),
-		                   "twenty characters, as Roland's own command carries them - this "
-		                   "display shows the first sixteen", false });
+		control(row.removeFromLeft(bw), "LOAD SNAPSHOT...", 6, tip);
+		summary(right, "Whole memory in one file (load restarts the unit)", tip);
 	}
-	area.removeFromTop(18.0f);
 
-	labels.push_back({ area.removeFromTop(15.0f), "BANKS", true });
+	group(right, "ABOUT");
+	itemTitle(right, "Factory initialisation");
+	summary(right,
+	        "POWER off, Ctrl+click WRITE/COPY to latch it, POWER on, Ctrl+click WRITE/COPY to "
+	        "release it, then ENTER. No button here, as on the hardware.",
+	        "The instrument has its own, and this plugin can perform it exactly: "
+	        "POWER off, Ctrl+click WRITE/COPY to latch the cap down, POWER on, "
+	        "Ctrl+click WRITE/COPY again to release it, then ENTER to confirm - "
+	        "release before confirming, not after. There is no button for it here, "
+	        "because there is none on the hardware either.", 3.0f);
+	itemTitle(right, "Where the edits go");
+	summary(right, "Every field sends Roland SysEx to the firmware",
+	        "Every field in this drawer sends the instrument a Roland exclusive "
+	        "message - the firmware changes its own memory, and the sound engine is "
+	        "brought into line from there. Nothing here writes to the sound engine "
+	        "behind the instrument's back.");
+	itemTitle(right, "Reference");
 	{
-		auto row = area.removeFromTop(28.0f);
-		buttons.push_back({ row.removeFromLeft(190.0f), "IMPORT SysEx / MIDI BANK", 2 });
-		labels.push_back({ row.reduced(12.0f, 0.0f),
-		                   "the file goes to the instrument whole, exactly as a librarian "
-		                   "would pour it into MIDI IN", false });
+		const juce::String tip = "LA synthesis parameter reference sheet (from the D-20, the D-110's "
+		                         "sibling with the same LA32 engine), for looking things up while "
+		                         "editing tones";
+		control(right.removeFromTop(30.0f * fs).removeFromLeft(150.0f), "LA REFERENCE", 8, tip);
+		summary(right, "LA synthesis parameter sheet, from the D-20", tip);
 	}
+	itemTitle(right, D110AudioProcessor::kExtendedPolyphonyLabel);
+	summary(right, "Always on: four times the real unit's 32 voices",
+	        "The real D-110 shares just 32 synthesis voices across all nine parts, "
+	        "and fast, overlapping playing on more than one part at once can "
+	        "genuinely run out and drop notes - measured, not assumed "
+	        "(plugin/multi_part_polyphony_probe.cpp). This is our own sound engine, "
+	        "so it isn't held to that ceiling: it renders with four times the "
+	        "voices, measured comfortably cheap on a modern CPU even with all nine "
+	        "parts playing at once. Everything else about the instrument - the "
+	        "firmware, the panel, the sound itself - is unchanged.");
+
+	group(right, "ADVANCED");
+	itemTitle(right, "Debug");
 	{
-		auto row = area.removeFromTop(28.0f);
-		buttons.push_back({ row.removeFromLeft(190.0f), "EXPORT SysEx BANK...", 7 });
-		labels.push_back({ row.reduced(12.0f, 0.0f),
-		                   "built straight from memory, instantly, rather than captured off a "
-		                   "live transfer - a real Roland dump, playable back in above or into "
-		                   "actual hardware over MIDI", false });
+		const juce::String tip = "when on, writes a running note-attempt tally to "
+		                         "~/d110_diagnostic_log.txt every few seconds - off by default, only "
+		                         "useful while chasing a real playback issue";
+		control(right.removeFromTop(30.0f * fs).removeFromLeft(150.0f),
+		        processor.getDebugModeEnabled() ? "LOGGING ON" : "LOGGING OFF", 12, tip);
+		summary(right, "Writes a note tally to ~/d110_diagnostic_log.txt", tip);
 	}
-	area.removeFromTop(18.0f);
 
-	labels.push_back({ area.removeFromTop(15.0f), "MEMORY SNAPSHOT", true });
-	{
-		auto row = area.removeFromTop(28.0f);
-		buttons.push_back({ row.removeFromLeft(150.0f), "SAVE SNAPSHOT...", 5 });
-		row.removeFromLeft(10.0f);
-		buttons.push_back({ row.removeFromLeft(150.0f), "LOAD SNAPSHOT...", 6 });
-		labels.push_back({ row.reduced(12.0f, 0.0f),
-		                   "every patch, timbre, system setting and the memory card, in one "
-		                   "file - loading one powers the instrument off and back on with that "
-		                   "memory in place", false });
-	}
-	area.removeFromTop(18.0f);
-
-	labels.push_back({ area.removeFromTop(15.0f), "FACTORY INITIALISATION", true });
-	labels.push_back({ area.removeFromTop(18.0f),
-	                   "The instrument has its own, and this plugin can perform it exactly: "
-	                   "POWER off, Ctrl+click WRITE/COPY to latch the cap down, POWER on, "
-	                   "Ctrl+click WRITE/COPY again to release it, then ENTER to confirm - "
-	                   "release before confirming, not after. There is no button for it here, "
-	                   "because there is none on the hardware either.", false });
-	area.removeFromTop(12.0f);
-
-	labels.push_back({ area.removeFromTop(15.0f), "WHERE THE EDITS GO", true });
-	labels.push_back({ area.removeFromTop(18.0f),
-	                   "Every field in this drawer sends the instrument a Roland exclusive "
-	                   "message - the firmware changes its own memory, and the sound engine is "
-	                   "brought into line from there. Nothing here writes to the sound engine "
-	                   "behind the instrument's back.", false });
-	area.removeFromTop(12.0f);
-
-	labels.push_back({ area.removeFromTop(15.0f), "REFERENCE", true });
-	{
-		auto row = area.removeFromTop(28.0f);
-		buttons.push_back({ row.removeFromLeft(150.0f), "LA REFERENCE", 8 });
-		labels.push_back({ row.reduced(12.0f, 0.0f),
-		                   "LA synthesis parameter reference sheet (from the D-20, the D-110's "
-		                   "sibling with the same LA32 engine), for looking things up while "
-		                   "editing tones", false });
-	}
-	area.removeFromTop(18.0f);
-
-	labels.push_back({ area.removeFromTop(15.0f), D110AudioProcessor::kExtendedPolyphonyLabel, true });
-	labels.push_back({ area.removeFromTop(28.0f),
-	                   "The real D-110 shares just 32 synthesis voices across all nine parts, "
-	                   "and fast, overlapping playing on more than one part at once can "
-	                   "genuinely run out and drop notes - measured, not assumed "
-	                   "(plugin/multi_part_polyphony_probe.cpp). This is our own sound engine, "
-	                   "so it isn't held to that ceiling: it renders with four times the "
-	                   "voices, measured comfortably cheap on a modern CPU even with all nine "
-	                   "parts playing at once. Everything else about the instrument - the "
-	                   "firmware, the panel, the sound itself - is unchanged.", false });
+	// The taller column sets the content height (see below); in one column both cursors are the same.
+	const float consumedLeft = kWorkingH - colA.getHeight();
+	const float consumedRight = twoCols ? kWorkingH - colB.getHeight() : consumedLeft;
+	area.setHeight(kWorkingH - juce::jmax(consumedLeft, consumedRight));
 
 	// How much vertical space every section above actually consumed, regardless of scroll
 	// position (translate() earlier moved the content, not how much of it there is) - this is
@@ -3053,15 +3082,22 @@ void D110EditorPane::paint(juce::Graphics &g) {
 	if (cells.empty() && buttons.empty() && tab != Tab::Monitor) layout();
 
 	const float scale = fontScale();
+	// UTILITY is a settings page rather than a table of fixed-size cells, so its text never shrinks
+	// below its base size with the window (the JiV-881's settings text doesn't either); its row
+	// heights follow, see layoutUtility().
+	const float labelScale = tab == Tab::Utility ? juce::jmax(1.0f, scale) : scale;
 	// The tab strip keeps its 11 pt; TONE and TONES use 13 pt body text, the size of SOUNDBANKS.
-	const juce::Font stripFont(juce::FontOptions(11.0f * scale, juce::Font::bold));
+	const juce::Font stripFont = d110ui::bodyFont(12.5f * juce::jlimit(1.0f, 1.1f, scale));
 	const bool bigText = (tab == Tab::Tone || tab == Tab::Tones);
-	const juce::Font labelFont(juce::FontOptions((bigText ? 13.0f : 11.0f) * scale, juce::Font::bold));
+	const juce::Font labelFont = d110ui::bodyFont(14.0f * labelScale);
 	const juce::Font valueFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(),
-	                                             (bigText ? 13.0f : 12.0f) * scale, juce::Font::plain));
+	                                             (bigText ? 14.0f : 13.0f) * labelScale, juce::Font::plain));
 	// Secondary text on TONE, TONES, UTILITY and MONITOR: halfway between the theme's grey and pure white.
+	// Towards white on the dark theme, towards black on the light one (towards white there made
+	// this text all but vanish on the light background).
+	const juce::Colour dimTarget = d110ui::getTheme() == d110ui::Theme::Light ? juce::Colours::black : juce::Colours::white;
 	const juce::Colour dimText = (bigText || tab == Tab::Utility || tab == Tab::Monitor)
-		? kEdDim().interpolatedWith(juce::Colours::white, 0.5f) : kEdDim();
+		? kEdDim().interpolatedWith(dimTarget, 0.5f) : kEdDim();
 
 	const char *kTabs[] = { "PARTS", "TONE", "RHYTHM", "PATCHES", "TIMBRES", "TONES",
 	                        "SYSTEM", "MONITOR", "SOUNDBANKS", "UTILITY" };
@@ -3167,8 +3203,21 @@ void D110EditorPane::paint(juce::Graphics &g) {
 
 	g.setFont(labelFont);
 	for (const Label &l : labels) {
-		g.setColour(l.heading ? kEdLabel() : dimText);
-		g.drawText(l.text, l.bounds, l.just);
+		if (l.group) {
+			g.setFont(d110ui::headingFont(15.0f * labelScale));
+			g.setColour(kEdValue());
+			g.drawText(l.text, l.bounds, l.just);
+			g.setFont(labelFont);
+			continue;
+		}
+		g.setColour(l.heading ? (tab == Tab::Utility ? kEdText() : kEdLabel()) : dimText);
+		// Taller than one line: a wrapped summary (UTILITY's factory initialisation steps),
+		// which drawText() would otherwise cut to one line with an ellipsis.
+		if (l.bounds.getHeight() > labelFont.getHeight() * 1.9f)
+			g.drawFittedText(l.text, l.bounds.toNearestInt(), l.just,
+			                 int(l.bounds.getHeight() / (labelFont.getHeight() * 1.05f)), 1.0f);
+		else
+			g.drawText(l.text, l.bounds, l.just);
 	}
 
 	// Buttons are painted like fields, only with the caption centred. Tone memory slots and
@@ -3256,7 +3305,7 @@ void D110EditorPane::paint(juce::Graphics &g) {
 	// One line about what this drawer is, so it does not read as a separate "plugin mixer"
 	// living a life of its own.
 	g.setColour(kEdDim());
-	g.setFont(juce::FontOptions(10.0f * scale));
+	g.setFont(d110ui::bodyFont(11.5f * juce::jlimit(1.0f, 1.2f, scale)));
 	juce::String footer;
 	switch (tab) {
 	case Tab::Parts:
@@ -3308,10 +3357,11 @@ void D110EditorPane::paint(juce::Graphics &g) {
 void D110EditorPane::paintMonitor(juce::Graphics &g, juce::Rectangle<float> area) {
 	const float scale = fontScale();
 	// Same brighter secondary text as the TONE tabs: halfway between the theme's grey and white.
-	const juce::Colour dimText = kEdDim().interpolatedWith(juce::Colours::white, 0.5f);
-	const juce::Font labelFont(juce::FontOptions(11.0f * scale, juce::Font::bold));
+	const juce::Colour dimText = kEdDim().interpolatedWith(
+		d110ui::getTheme() == d110ui::Theme::Light ? juce::Colours::black : juce::Colours::white, 0.5f);
+	const juce::Font labelFont = d110ui::bodyFont(14.0f * scale);
 	const juce::Font valueFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(),
-	                                             12.0f * scale, juce::Font::plain));
+	                                             13.0f * scale, juce::Font::plain));
 
 	g.setColour(kEdLabel());
 	g.setFont(labelFont);
@@ -3452,6 +3502,17 @@ void D110EditorPane::paintMonitor(juce::Graphics &g, juce::Rectangle<float> area
 	}
 }
 
+juce::String D110EditorPane::tooltipAt(juce::Point<float> p) const {
+	// Scrolled-out items keep bounds that sit under the tab strip and the caption strip, so
+	// only the content rectangle counts.
+	if (tab != Tab::Utility || !contentArea.contains(p)) return {};
+	for (const Button &b : buttons)
+		if (b.tip.isNotEmpty() && b.bounds.contains(p)) return b.tip;
+	for (const Label &l : labels)
+		if (l.tip.isNotEmpty() && l.bounds.contains(p)) return l.tip;
+	return {};
+}
+
 void D110EditorPane::buttonPressed(int id) {
 	if (id == 11) {
 		const bool light = d110ui::getTheme() != d110ui::Theme::Light;
@@ -3487,6 +3548,10 @@ void D110EditorPane::buttonPressed(int id) {
 		return;
 	}
 #endif
+	if (id == 28) {
+		if (onOptionsButtonClicked) onOptionsButtonClicked();
+		return;
+	}
 	if (id == 27) {
 		processor.setAltPanelView(!processor.getAltPanelView());
 		// Same path as PANEL SIZE: the reference width changes with the artwork.
@@ -4403,6 +4468,12 @@ void D110MemoryCard::timerCallback() {
 
 // ---------------------------------------------------------------------------
 
+void D110AudioProcessorEditor::applyTooltipColours() {
+	tooltipWindow.setColour(juce::TooltipWindow::backgroundColourId, kEdBox());
+	tooltipWindow.setColour(juce::TooltipWindow::textColourId, kEdValue());
+	tooltipWindow.setColour(juce::TooltipWindow::outlineColourId, kEdBorder());
+}
+
 D110AudioProcessorEditor::D110AudioProcessorEditor(D110AudioProcessor &p)
 	: juce::AudioProcessorEditor(&p), processor(p), panel(p), editorPane(p), card(p), keyboard(p),
 	  sequencerPanel(p), sequencerRetroPanel(p), sequencerGridPanel(p)
@@ -4505,13 +4576,22 @@ D110AudioProcessorEditor::D110AudioProcessorEditor(D110AudioProcessor &p)
 	const bool restoredWidth = processor.editorWidth >= kMinWindowWidth;
 	const int startW = restoredWidth ? juce::jmin(processor.editorWidth, 8000) : 1500;
 	setSize(startW, int(totalRefHeight() * (float(startW) / float(D110Panel::currentRefW(processor.getCompactPanelMode(), processor.getAltPanelView()))) + 0.5f));
-	sizeTracking = true;
-	if (!restoredWidth)
-	juce::MessageManager::callAsync([safe = juce::Component::SafePointer<D110AudioProcessorEditor>(this)] {
+	// The standalone host re-lays the editor out right after this constructor returns: its
+	// content component starts at the window's minimum and resizes the editor to that (traced
+	// 2026-10-20: 1500 -> 360 -> back up), so the size chosen above is lost, and the transient
+	// minimum used to be recorded as the width to restore - the window then always reopened at
+	// the minimum. Hence the width is re-applied once that first layout is over, and only then
+	// does size tracking begin. A first run still opens at kStartWindowWidth, as before.
+	juce::MessageManager::callAsync([safe = juce::Component::SafePointer<D110AudioProcessorEditor>(this),
+	                                 restoredWidth, startW] {
 		auto *self = safe.getComponent();
-		if (self == nullptr || self->getWidth() >= kStartWindowWidth) return;
-		const float refW = float(D110Panel::currentRefW(self->processor.getCompactPanelMode(), self->processor.getAltPanelView()));
-		self->setSize(kStartWindowWidth, int(self->totalRefHeight() * (float(kStartWindowWidth) / refW) + 0.5f));
+		if (self == nullptr) return;
+		const int want = restoredWidth ? startW : juce::jmax(self->getWidth(), kStartWindowWidth);
+		if (self->getWidth() != want) {
+			const float refW = float(D110Panel::currentRefW(self->processor.getCompactPanelMode(), self->processor.getAltPanelView()));
+			self->setSize(want, int(self->totalRefHeight() * (float(want) / refW) + 0.5f));
+		}
+		self->sizeTracking = true;
 	});
 
 	// Zoom presets (Utility tab) call this to resize precisely, the same way a manual
@@ -4525,7 +4605,9 @@ D110AudioProcessorEditor::D110AudioProcessorEditor(D110AudioProcessor &p)
 
 	// The THEME toggle flips a process-wide palette (UiTheme.h) - every drawer needs a
 	// fresh paint to pick it up, not just the Utility tab that owns the button.
+	applyTooltipColours();
 	editorPane.onThemeChanged = [this] {
+		applyTooltipColours();
 		editorPane.repaint();
 		keyboard.repaint();
 		sequencerPanel.repaint();
@@ -4982,13 +5064,12 @@ bool D110AudioProcessorEditor::keyPressed(const juce::KeyPress &key)
 
 void D110AudioProcessorEditor::resized()
 {
-	// Remember the width once a drag has settled (not once per pixel).
-	if (sizeTracking && getWidth() > 0) {
-		const int token = ++sizeSaveToken;
-		juce::Timer::callAfterDelay(600, [safe = juce::Component::SafePointer<D110AudioProcessorEditor>(this), token] {
-			if (safe != nullptr && token == safe->sizeSaveToken) safe->processor.editorWidth = safe->getWidth();
-		});
-	}
+	// Remember the width at every resize: it is a plain int store, and the state is read the
+	// moment the app closes (JUCE standalone: closeButtonPressed() -> getStateInformation()),
+	// so a value debounced by a timer was stale whenever the window was closed right after
+	// being resized (Alan, 2026-10-20: "keep the last size on quit").
+	if (sizeTracking && getWidth() > 0)
+		processor.editorWidth = getWidth();
 
 	const float s = float(getWidth()) / float(D110Panel::currentRefW(processor.getCompactPanelMode(), processor.getAltPanelView()));
 	panel.setBounds(0, 0, D110Panel::currentRefW(processor.getCompactPanelMode(), processor.getAltPanelView()), D110Panel::kRefH);

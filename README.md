@@ -31,8 +31,14 @@ other one (Utility tab, "ROM FOLDER"). Folders earlier versions used (`...\VST3\
 `~/.vst3/D-110_Data/`, `D-110 Emulator\D-110 Data\`) keep working if that is where your ROMs already
 are - see [`docs/roms.md`](docs/roms.md).
 
-Right-click the panel to see what was recognised. Full requirements, checksums, and what to do
+Right-click the panel to see what was recognised (the **Utility** tab's "OPTIONS..." button opens
+the same menu). Full requirements, checksums, and what to do
 if you only have `D-110_PCM.bin`/`D-110_Control.bin`: [`docs/roms.md`](docs/roms.md).
+
+The **Utility** tab also holds the display settings: window size, **panel size** (full or compact),
+**alt view** (a flat alternative front panel with a classic VOLUME knob, memory card disabled),
+theme and font size. Hover a control there for the full explanation. The window reopens at the
+size it was last closed at.
 
 The doc in pdf format for the synthesizer is located at [https://cdn.roland.com/assets/media/pdf/D-110_OM.pdf](https://cdn.roland.com/assets/media/pdf/D-110_OM.pdf)
 

@@ -12,6 +12,13 @@
   `docs/panel_reference_compact.png`, the same photo with the MEMORY CARD section spliced out
   and the window narrowed to match - see `panel_reference_notes.md`'s own "Compact mode" section
   for the seam geometry and `D110Panel::currentRefW()`/`kCompactShift`.
+  Utility tab's "ALT VIEW" (`processor.getAltPanelView()`) swaps in `panel_reference_alt_256.png` /
+  `panel_reference_compact_alt_256.png` (Alan's `panel_reference_alt.png` / `_compact_alt.png`
+  resampled to the 256 px reference height by `tools/make_alt_panels.py`) with its own measured
+  geometry (`Skin` in `PluginEditor.cpp`), a pointerless knob sprite plus a drawn pointer
+  (`tools/make_alt_knob.py`), and the memory card disabled - see `panel_reference_notes.md`'s
+  "Alt view" section. `UiTheme.h` also holds the drawer's text helpers (`bodyFont`, `headingFont`)
+  and `sequencerBackground()`.
 - `plugin/Source/D110Keyboard.h/.cpp` - the on-screen test keyboard (mouse piano + tracker-
   style PC keyboard input, MIDI channel/remap routing via right-click), extracted out of
   `PluginEditor.*` so it can be reused outside the plugin. Talks to its owner only through

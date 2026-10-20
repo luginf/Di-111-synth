@@ -329,7 +329,7 @@ private:
 // Every address this pane writes to has been MEASURED, not taken from the manual on trust:
 // plugin/editor_write_probe.cpp sends one write into each area and watches which byte of the
 // battery-backed RAM moves.
-class D110EditorPane : public juce::Component, private juce::Timer {
+class D110EditorPane : public juce::Component, public juce::TooltipClient, private juce::Timer {
 public:
 	explicit D110EditorPane(D110AudioProcessor &);
 
@@ -456,6 +456,7 @@ private:
 		juce::Rectangle<float> bounds;
 		juce::String text;
 		int id = 0;
+		juce::String tip;   // hover text, UTILITY only for now - see tooltipAt()
 	};
 
 	// The caption, computed together with the fields. They are kept in one list so that the
@@ -466,8 +467,17 @@ private:
 		juce::String text;
 		bool heading = true;
 		juce::Justification just = juce::Justification::centredLeft;
+		bool group = false;   // UTILITY section title: bold, brighter, a size up
+		juce::String tip;     // hover text, UTILITY only for now - see tooltipAt()
 	};
 
+public:
+	// juce::TooltipClient: the hover text of whatever UTILITY control or summary is under the
+	// mouse. tooltipAt() is the testable part (no component or mouse needed, just a point in
+	// this pane's own coordinates).
+	juce::String getTooltip() override { return tooltipAt(getMouseXYRelative().toFloat()); }
+	juce::String tooltipAt(juce::Point<float> p) const;
+private:
 	void layout();
 	void layoutParts(juce::Rectangle<float> area);
 	void layoutTone(juce::Rectangle<float> area);
@@ -745,8 +755,7 @@ public:
 	// Width the window opens at: the Standalone creates it 128x128 first, which the constraint above clamps to the
 	// minimum, so without this it would open at kMinWindowWidth (it used to open at the old minimum, 900).
 	static constexpr int kStartWindowWidth = 900;
-	bool sizeTracking = false; // set once the constructor has chosen the initial size
-	int sizeSaveToken = 0;
+	bool sizeTracking = false; // set once the host's first layout is over and the initial width re-applied
 	static constexpr float kMinKeyboardPaneRefH = 70.0f;
 	static constexpr float kMaxKeyboardPaneRefH = 400.0f;
 	// Handle band above the sequencer drawer - same slim treatment as the keyboard's, and the
@@ -789,6 +798,11 @@ private:
 	// The card is added AFTER the drawer and so lies on top of it - otherwise an ejected card
 	// would hide behind the editor's fields.
 	D110MemoryCard card;
+	// Hover text for the UTILITY tab's controls (D110EditorPane::tooltipAt). Parented to this
+	// editor so it also works inside a plugin host; coloured from the drawer palette, see
+	// applyTooltipColours().
+	juce::TooltipWindow tooltipWindow { this, 600 };
+	void applyTooltipColours();
 	// Stacked below the extended editor's own drawer, with its own independent fold state -
 	// see D110Keyboard's header comment for why.
 	D110Keyboard keyboard;

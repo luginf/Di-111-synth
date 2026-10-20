@@ -1545,7 +1545,7 @@ void D110SequencerPanel::resized() { layout(); }
 
 void D110SequencerPanel::paint(juce::Graphics &g) {
 	const auto &pal = d110ui::palette();
-	g.fillAll(pal.panelBg);
+	g.fillAll(d110ui::sequencerBackground());
 	auto &eng = engine();
 
 	gToggleFontMax = stackedTransport ? 17.0f : 13.0f;
@@ -1675,7 +1675,7 @@ void D110SequencerPanel::paint(juce::Graphics &g) {
 		const juce::String customName = eng.getTrackName(t);
 
 		g.setColour(pal.seqInactiveText);
-		g.setFont(juce::FontOptions(juce::jlimit(9.0f, 14.0f, r.label.getHeight() * 0.5f)));
+		g.setFont(juce::FontOptions(juce::jlimit(11.0f, 15.0f, r.label.getHeight() * 0.6f)));
 		g.drawText(customName.isNotEmpty() ? customName : defaultLabel, r.label,
 		           juce::Justification::centredLeft);
 
@@ -1683,7 +1683,7 @@ void D110SequencerPanel::paint(juce::Graphics &g) {
 		// see D110SequencerHost::supportsTrackChannelEdit()), so it reads as a control there
 		// and a plain readout in the plugin, where the channel only ever follows the live
 		// firmware's own SYSTEM page.
-		g.setColour(processor.supportsTrackChannelEdit() ? pal.value : pal.handleLabel);
+		g.setColour(processor.supportsTrackChannelEdit() ? pal.value : pal.seqInactiveText.withAlpha(0.85f));
 		// Trailing "*" = this track has a Program Change set (see showTrackChannelMenu()) -
 		// just a presence hint, the readout's too narrow for the actual program number.
 		const bool hasProgram = processor.supportsProgramChange() && processor.getTrackProgram(t) >= 0;
@@ -1699,8 +1699,8 @@ void D110SequencerPanel::paint(juce::Graphics &g) {
 
 		// Far right: a bare digit/letter reminder of which part this is, independent of
 		// whatever custom name is showing on the left (see promptForRenameTrack()).
-		g.setColour(pal.seqInactiveText.withAlpha(0.7f));
-		g.setFont(juce::FontOptions(juce::jlimit(9.0f, 14.0f, r.partNumberBounds.getHeight() * 0.5f)));
+		g.setColour(pal.seqInactiveText.withAlpha(0.9f));
+		g.setFont(juce::FontOptions(juce::jlimit(11.0f, 15.0f, r.partNumberBounds.getHeight() * 0.5f)));
 		g.drawText(isRhythm ? "R" : juce::String(t + 1), r.partNumberBounds, juce::Justification::centred);
 	}
 }

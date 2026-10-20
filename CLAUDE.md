@@ -178,6 +178,30 @@ cd plugin && cmake -B build -S . && cmake --build build --config Release
 ```
 Full requirements, MAME-backend opt-in build, and ROM setup: see `README.md`.
 
+## Panel skins, drawer text and window size (2026-10-20, issues #10/#11 era)
+
+- **Two panel skins** (`Skin` struct, `kSkinNormal`/`kSkinAlt` in `PluginEditor.cpp`), picked by
+  `processor.getAltPanelView()` (Utility "ALT VIEW"); orthogonal to compact mode. The alt PNGs
+  Alan supplies (2166x269 / 1598x269) don't share the photo's geometry, so the embedded copies
+  are resampled to 256 px high (`tools/make_alt_panels.py`) and measured; numbers are in
+  `docs/panel_reference_notes.md` "Alt view". All reference widths go through
+  `D110Panel::currentRefW(compact, alt)` / `mapX(x, compact, alt)`. Alt view disables the
+  memory card (slot not hit-tested, `D110MemoryCard` hidden), it doesn't touch its state.
+- **VOLUME knob**: the disc never rotates (lighting would turn with it); a pointerless sprite is
+  drawn upright and the white pointer is drawn over it. Don't go back to rotating the photo.
+- **Drawer text**: plain weight (bold only for section headings), 14 px body, high-contrast
+  `kEdText()` blend (the JiV-881 reference is plain 13-14 px near-white). UTILITY is two columns
+  with a one-line summary per control and the full text in a tooltip (`tooltipAt()`); keep
+  summaries short, `drawText` ellipsizes silently. The sequencer drawers use
+  `d110ui::sequencerBackground()` (near-black on the dark theme).
+- **Window size memory**: the JUCE standalone host resizes the editor to its minimum right after
+  the editor's constructor (traced: 1500 -> 360), so the constructor's `setSize` is lost and the
+  transient minimum used to be saved. The width is re-applied in a `callAsync` and `sizeTracking`
+  only starts after that. Verified with Xvfb + openbox + `wmctrl -i -c <id>` (a clean close is
+  what saves the state; killing the process doesn't).
+- `plugin/build` still points at the old `d110-vst-emulator` path; configure a fresh build dir
+  with `-DFETCHCONTENT_SOURCE_DIR_JUCE=plugin/build/_deps/juce-src` instead.
+
 ## Nonet Sequencer extracted to its own repository (2026-09-22)
 
 Alan asked to separate the independent Nonet Sequencer app from this repo, keeping this

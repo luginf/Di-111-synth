@@ -669,7 +669,7 @@ void D110SequencerGridPanel::timerCallback() {
 void D110SequencerGridPanel::paint(juce::Graphics &g) {
 	const auto &pal = d110ui::palette();
 	auto &eng = engine();
-	g.fillAll(pal.panelBg);
+	g.fillAll(d110ui::sequencerBackground());
 
 	gButtonFontMax = stackedTransport ? 17.0f : 13.0f;
 	for (const auto &b : buttons) {
