@@ -298,3 +298,35 @@ be updated to match, by measurement, the same way. `currentRefW()` (`kRefW` or
 reads instead of the bare
 `kRefW` constant, so the aspect ratio, zoom percent and drawer widths all narrow
 along with the panel itself.
+
+## Alt view (issue #10, 2026-10-20)
+
+Utility -> ALT VIEW (`processor.getAltPanelView()`, saved as `altPanelView`) swaps in Alan's flat
+artwork `panel_reference_alt.png` (2166 x 269) and `panel_reference_compact_alt.png`
+(1598 x 269). Those two differ from the photographs in size and layout, so everything below was
+re-measured, on copies resampled to the 256 px reference height (`tools/make_alt_panels.py` ->
+`panel_reference_alt_256.png` 2061 x 256, `panel_reference_compact_alt_256.png` 1521 x 256; the
+256 px height is what `D110Panel::kRefH` and the drawer layout assume). The alt skin is the
+`kSkinAlt` struct in `PluginEditor.cpp`; the normal skin is `kSkinNormal`.
+
+| Item | Value (alt256 pixels) | How |
+| --- | --- | --- |
+| button outer rects | x 985, 1062, 1140, 1216, 1293, 1369, 1445, 1521; w 73; rows y 74 and 168, h 30 | black 2-3 px outline columns/rows at fixed luma |
+| LCD glass | `(621, 95, 264, 69)` | bounding box of the green field |
+| glyph grid | normal grid x 264/247 = 1.0688, line 0 at y 101 | uniform scale, window is 3.83:1 |
+| POWER face / hit | face `(1884,104,71,99)`, outline `(1880,100,79,107)` | outline columns/rows |
+| MIDI lamp | `(1884, 52, 77, 6)` | inner fill of the slot |
+| VOLUME knob | centre `(381.6, 156.9)`, tick ring R 43.1, 21 ticks, MIN -141.9, MAX +143.17 deg | circle fit on the tick centroids |
+
+Compact alt is a pure splice of the full alt (checked column by column: offset 250, then 474
+after the card section): left cut `[0,250)`, card cut `[1626,1850)`, width 1521, so `mapX()` has
+its own numbers for it (`kAltCompact*` in `PluginEditor.h`).
+
+The alt knob photo carries a baked pointer, so `volume_knob_alt_disc.png`
+(`tools/make_alt_knob.py`) is the knob lifted from the photo with that pointer inpainted from
+the body's radial profile, laid over it at integer offset (348,123); the panel then draws its
+own pointer. The normal knob works the same way (`volume_knob_disc.png`, no rotation of the
+disc, so its lighting stays put - only the pointer turns).
+
+ALT VIEW also disables the MEMORY CARD: the slot is not hit-tested and `D110MemoryCard` stays
+hidden, whatever its insert/eject state.

@@ -140,7 +140,7 @@ constexpr float kLampX = 1940.0f, kLampY = 56.5f, kLampW = 26.0f, kLampH = 3.5f;
 // before the printed tick ring starts at r 34, so clipping the spin at r 31 takes
 // the whole knob and none of the fixed scale.
 //
-// The disc image itself (volume_knob.png, docs/) is a separate, roughly-frontal knob
+// The disc image itself (volume_knob_disc.png, docs/) is a separate, roughly-frontal knob
 // photo, NOT lifted from the panel photograph - 2026-09-04, Alan's request: the panel
 // photo's own knob is lit from one side, so rotating that whole cut-out (the original
 // approach) dragged its specular highlight/shadow around with it, reading as visibly
@@ -151,9 +151,12 @@ constexpr float kLampX = 1940.0f, kLampY = 56.5f, kLampW = 26.0f, kLampH = 3.5f;
 // convention) - loaded straight from BinaryData, no cutOut() needed since there's no
 // panel photo pixel data to lift.
 //
-// It carries its own printed white pointer, so it rides on the image and needs no
-// synthetic dot drawn over it - but that also means the image's own pointer angle has
-// to be subtracted before any rotation is applied, same idea as the old cut-out.
+// Even so, rotating the whole disc still dragged its own lighting around (2026-10-20,
+// issue #10: "just the white pointer should turn, not the rest of the image"). So the disc
+// is now pointerless and never rotates: volume_knob_disc.png is volume_knob.png with its
+// printed pointer inpainted from the neighbouring body pixels, drawn upright so the light
+// stays at the top right, and the white pointer is drawn over it as a line (same idea as
+// the JiV-881 panel's own VOLUME pointer).
 //
 // kKnobMinDeg/kKnobMaxDeg are properties of the FIXED printed scale on the panel
 // photograph (21 ticks around the knob) - untouched by which disc image spins inside
@@ -169,14 +172,77 @@ constexpr float kLampX = 1940.0f, kLampY = 56.5f, kLampW = 26.0f, kLampH = 3.5f;
 // is where it now sits by default, since masterVolume's range was made symmetric
 // about unity gain.
 //
-// kKnobPhotoDeg is the NEW disc image's own pointer angle: -176.70 (intensity-weighted
-// centroid of the pointer capsule, isolated by connected-component labelling from the
-// knob's edge specular highlight, which sits at a very different radius). Re-measure
-// this constant again if volume_knob.png is ever replaced.
+// The pointer is drawn from kKnobPtrInner to kKnobPtrOuter pixels off the knob centre, which
+// is where the original printed pointer sat in volume_knob.png (measured: core pixels at
+// r 11..25, rounded ends to r 10..26), at the same width and colour.
 constexpr float kKnobCx = 367.5f, kKnobCy = 149.0f;
 constexpr float kKnobSpinR = 31.0f, kKnobHitR = 34.0f;
 constexpr float kKnobMinDeg = -146.74f, kKnobMaxDeg = 149.96f;
-constexpr float kKnobPhotoDeg = -176.70f;
+constexpr float kKnobPtrInner = 10.5f, kKnobPtrOuter = 25.5f, kKnobPtrWidth = 4.2f;
+
+// Everything that differs between the photographed panel and the ALT VIEW artwork (issue #10,
+// 2026-10-20: docs/panel_reference_alt.png and panel_reference_compact_alt.png, flat artwork
+// with a classic VOLUME knob). One struct per look, picked by processor.getAltPanelView(), so
+// the paint and hit-test code never branches on it. The normal skin is just the constants
+// above; the alt one was measured by profiling docs/panel_reference_alt_256.png (the same
+// picture resampled to the 256 px reference height, tools/make_alt_panels.py) - see
+// docs/panel_reference_notes.md, "Alt view".
+struct Skin {
+	float lcdX, lcdY, lcdW, lcdH;
+	float charX0, cellW, line0Y, lineStep, dotH;
+	float powerX, powerY, powerW, powerH;       // the cap face that sinks
+	float bezelX, bezelY, bezelW, bezelH;       // POWER's clickable area
+	float lampX, lampY, lampW, lampH;
+	float knobCx, knobCy, knobHitR;
+	float knobMinDeg, knobMaxDeg;
+	float ptrInner, ptrOuter, ptrWidth;
+	juce::Colour ptrColour;
+	float spriteX, spriteY;                      // where the knob sprite's top-left sits in the photo
+	float spriteClipR;                           // <= 0: the sprite carries its own round alpha
+	juce::Colour recessOverride;                 // alpha 0: sample it from the photo instead
+};
+
+const Skin kSkinNormal = {
+	kLcdX, kLcdY, kLcdW, kLcdH,
+	kCharX0, kCellW, kLine0Y, kLineStep, kDotH,
+	kPowerX, kPowerY, kPowerW, kPowerH,
+	kBezelX, kBezelY, kBezelW, kBezelH,
+	kLampX, kLampY, kLampW, kLampH,
+	kKnobCx, kKnobCy, kKnobHitR,
+	kKnobMinDeg, kKnobMaxDeg,
+	kKnobPtrInner, kKnobPtrOuter, kKnobPtrWidth,
+	juce::Colour(0xffe7e8e8),
+	std::floor(kKnobCx - kKnobSpinR - 1.0f), std::floor(kKnobCy - kKnobSpinR - 1.0f),
+	kKnobSpinR,
+	juce::Colour(0x00000000),
+};
+
+// Alt skin. The LCD window is the green field (264 x 69, 3.83:1 rather than the real module's
+// 4.11:1), so the glyph grid is the normal one scaled uniformly by 264/247 and dropped a few
+// pixels to sit in the taller window. The pointer range is the printed scale's own end ticks
+// (21 ticks, fitted ring: centre 381.13,156.41, R 43.1, outermost ticks -141.9 and +143.17).
+// Buttons are flat rectangles with a black outline; their outer rectangles are the faces.
+const Skin kSkinAlt = {
+	621.0f, 95.0f, 264.0f, 69.0f,
+	627.4f, 15.40f, 101.0f, 28.16f, 2.886f,
+	1884.0f, 104.0f, 71.0f, 99.0f,
+	1880.0f, 100.0f, 79.0f, 107.0f,
+	1884.0f, 52.0f, 77.0f, 6.0f,
+	381.6f, 156.9f, 34.0f,
+	-141.9f, 143.17f,
+	6.5f, 25.5f, 3.4f,
+	juce::Colour(0xfff2f2f2),
+	348.0f, 123.0f,
+	0.0f,
+	juce::Colour(0xff050505),
+};
+
+const Skin &skinOf(const D110AudioProcessor &p) { return p.getAltPanelView() ? kSkinAlt : kSkinNormal; }
+
+// Alt buttons: left edge of each column (identical for both rows), top of each row.
+constexpr float kAltBtnX[8] = { 985.0f, 1062.0f, 1140.0f, 1216.0f, 1293.0f, 1369.0f, 1445.0f, 1521.0f };
+constexpr float kAltBtnRowY[2] = { 74.0f, 168.0f };
+constexpr float kAltBtnW = 73.0f, kAltBtnH = 30.0f;
 
 } // namespace
 
@@ -210,19 +276,38 @@ D110Panel::D110Panel(D110AudioProcessor &p)
 	                                             BinaryData::panel_reference_pngSize);
 	panelImageCompact = juce::ImageCache::getFromMemory(
 		BinaryData::panel_reference_compact_png, BinaryData::panel_reference_compact_pngSize);
+	panelImageAlt = juce::ImageCache::getFromMemory(
+		BinaryData::panel_reference_alt_256_png, BinaryData::panel_reference_alt_256_pngSize);
+	panelImageCompactAlt = juce::ImageCache::getFromMemory(
+		BinaryData::panel_reference_compact_alt_256_png,
+		BinaryData::panel_reference_compact_alt_256_pngSize);
 
-	for (const auto &b : kButtons) {
-		const juce::Rectangle<float> face(b.x, b.y, b.w, b.h);
-		capImages.push_back(cutOut(face));
-		recessColours.push_back(recessColourOf(face));
+	// Pressed-cap pictures for both looks, each lifted from its own full-width photo at its own
+	// coordinates (the compact photos are pure splices of the full ones, so the same cut-outs
+	// serve both sizes).
+	for (int alt = 0; alt < 2; ++alt) {
+		const auto &image = alt ? panelImageAlt : panelImage;
+		const auto &sk = alt ? kSkinAlt : kSkinNormal;
+		auto &caps = alt ? capImagesAlt : capImages;
+		auto &recesses = alt ? recessColoursAlt : recessColours;
+		for (int i = 0; i < kNumButtons; ++i) {
+			const auto face = buttonRef(i, alt != 0);
+			caps.push_back(cutOut(image, face));
+			recesses.push_back(sk.recessOverride.getAlpha() ? sk.recessOverride
+			                                                : recessColourOf(image, face));
+		}
+		const juce::Rectangle<float> power(sk.powerX, sk.powerY, sk.powerW, sk.powerH);
+		(alt ? powerCapAlt : powerCap) = cutOut(image, power);
+		(alt ? powerRecessColourAlt : powerRecessColour) =
+			sk.recessOverride.getAlpha() ? sk.recessOverride : recessColourOf(image, power);
 	}
-	powerCap = cutOut({ kPowerX, kPowerY, kPowerW, kPowerH });
-	powerRecessColour = recessColourOf({ kPowerX, kPowerY, kPowerW, kPowerH });
 
 	// Not cutOut() - see kKnobCx's own comment on why this is a separate asset now
 	// rather than a lift from the panel photograph.
-	volumeDisc = juce::ImageCache::getFromMemory(BinaryData::volume_knob_png,
-	                                             BinaryData::volume_knob_pngSize);
+	volumeDisc = juce::ImageCache::getFromMemory(BinaryData::volume_knob_disc_png,
+	                                             BinaryData::volume_knob_disc_pngSize);
+	volumeDiscAlt = juce::ImageCache::getFromMemory(BinaryData::volume_knob_alt_disc_png,
+	                                                BinaryData::volume_knob_alt_disc_pngSize);
 
 	setSize(kRefW, kRefH);
 	startTimerHz(60);
@@ -241,17 +326,32 @@ void D110Panel::setDisplayScale(float scale)
 	}
 }
 
-juce::Image D110Panel::cutOut(juce::Rectangle<float> area) const
+juce::Image D110Panel::cutOut(const juce::Image &image, juce::Rectangle<float> area)
 {
-	return panelImage.getClippedImage(
-		area.getSmallestIntegerContainer().getIntersection(panelImage.getBounds())).createCopy();
+	return image.getClippedImage(
+		area.getSmallestIntegerContainer().getIntersection(image.getBounds())).createCopy();
+}
+
+// Where button `index` sits in the full-width photograph of the chosen look, before mapX().
+juce::Rectangle<float> D110Panel::buttonRef(int index, bool alt) const
+{
+	if (!alt) {
+		const auto &b = kButtons[index];
+		return { b.x, b.y, b.w, b.h };
+	}
+	return { kAltBtnX[index % 8], kAltBtnRowY[index / 8], kAltBtnW, kAltBtnH };
+}
+
+float D110Panel::mx(float refX) const
+{
+	return mapX(refX, processor.getCompactPanelMode(), processor.getAltPanelView());
 }
 
 // The strip immediately above a cap is the black recess it sits in. Its average
 // colour is what shows as a ring around the cap once pressed.
-juce::Colour D110Panel::recessColourOf(juce::Rectangle<float> capFace) const
+juce::Colour D110Panel::recessColourOf(const juce::Image &image, juce::Rectangle<float> capFace)
 {
-	const auto strip = cutOut({ capFace.getX(), capFace.getY() - 4.0f, capFace.getWidth(), 4.0f });
+	const auto strip = cutOut(image, { capFace.getX(), capFace.getY() - 4.0f, capFace.getWidth(), 4.0f });
 	juce::int64 r = 0, g = 0, b = 0, n = 0;
 	for (int y = 0; y < strip.getHeight(); ++y)
 		for (int x = 0; x < strip.getWidth(); ++x) {
@@ -280,8 +380,9 @@ void D110Panel::rebuildLcdImage()
 	// How many offscreen pixels per artwork pixel: enough oversampling for the dot
 	// antialiasing to look clean, without exploding the buffer at large window sizes.
 	const float super = juce::jlimit(2.0f, float(kLcdSuper), 4.0f * lcdDisplayScale);
-	const int w = juce::jmax(1, juce::roundToInt(kLcdW * super));
-	const int h = juce::jmax(1, juce::roundToInt(kLcdH * super));
+	const Skin &sk = skinOf(processor);
+	const int w = juce::jmax(1, juce::roundToInt(sk.lcdW * super));
+	const int h = juce::jmax(1, juce::roundToInt(sk.lcdH * super));
 	if (!lcdImage.isValid() || lcdImage.getWidth() != w || lcdImage.getHeight() != h)
 		lcdImage = juce::Image(juce::Image::RGB, w, h, false);
 
@@ -302,8 +403,8 @@ void D110Panel::rebuildLcdImage()
 	// widths alternate between two values and the glyph strokes come out visibly
 	// ragged. Antialiasing at `super` and downscaling from there keeps every dot
 	// the same size.
-	auto px = [super](float panelX) { return (panelX - kLcdX) * super; };
-	auto py = [super](float panelY) { return (panelY - kLcdY) * super; };
+	auto px = [super, &sk](float panelX) { return (panelX - sk.lcdX) * super; };
+	auto py = [super, &sk](float panelY) { return (panelY - sk.lcdY) * super; };
 	// Tuned at the original fixed kLcdSuper=8 as a FRACTION of a dot - the smallest gap
 	// that keeps the dots of one stroke visibly running together instead of breaking into
 	// separate squares. `super` now varies with the window, so the gap has to scale with
@@ -322,9 +423,10 @@ void D110Panel::rebuildLcdImage()
 				for (int dx = 0; dx < 5; ++dx) {
 					if (!((rows[dy] >> (4 - dx)) & 1))
 						continue;
-					const float x0 = px(kCharX0 + col * kCellW + dx * kDotW);
-					const float y0 = py(kLine0Y + line * kLineStep + dy * kDotH);
-					g.fillRect(x0, y0, kDotW * super - kDotGapX, kDotH * super - kDotGapY);
+					const float dotW = sk.cellW / 6.0f;
+					const float x0 = px(sk.charX0 + col * sk.cellW + dx * dotW);
+					const float y0 = py(sk.line0Y + line * sk.lineStep + dy * sk.dotH);
+					g.fillRect(x0, y0, dotW * super - kDotGapX, sk.dotH * super - kDotGapY);
 				}
 		}
 }
@@ -396,6 +498,10 @@ void D110Panel::timerCallback()
 		lastPowerOn = power;
 		lcdChanged = true;
 	}
+	if (processor.getAltPanelView() != lastAltView) {
+		lastAltView = processor.getAltPanelView();
+		lcdChanged = true;
+	}
 
 	if (lcdChanged) {
 		rebuildLcdImage();
@@ -409,7 +515,9 @@ void D110Panel::timerCallback()
 
 void D110Panel::paint(juce::Graphics &g)
 {
-	g.drawImageAt(processor.getCompactPanelMode() ? panelImageCompact : panelImage, 0, 0);
+	const bool alt = processor.getAltPanelView();
+	g.drawImageAt(processor.getCompactPanelMode() ? (alt ? panelImageCompactAlt : panelImageCompact)
+	                                              : (alt ? panelImageAlt : panelImage), 0, 0);
 
 	for (int i = 0; i < kNumButtons; ++i)
 		paintButton(g, i);
@@ -463,10 +571,11 @@ void D110Panel::paintButton(juce::Graphics &g, int index) const
 	if (depth < 0.02f)
 		return; // untouched: the photograph already shows the cap correctly
 
-	const auto &b = kButtons[index];
-	const bool compact = processor.getCompactPanelMode();
-	const juce::Rectangle<float> face(mapX(b.x, compact), b.y, b.w, b.h);
-	paintPressedCap(g, capImages[size_t(index)], recessColours[size_t(index)], face,
+	const bool alt = processor.getAltPanelView();
+	auto face = buttonRef(index, alt);
+	face.setX(mx(face.getX()));
+	paintPressedCap(g, (alt ? capImagesAlt : capImages)[size_t(index)],
+	                (alt ? recessColoursAlt : recessColours)[size_t(index)], face,
 	                pressedRect(face, depth, kPressShrink, kPressDrop), depth);
 }
 
@@ -475,39 +584,46 @@ void D110Panel::paintPowerSwitch(juce::Graphics &g) const
 	if (powerMotion.depth < 0.02f)
 		return;
 
-	const juce::Rectangle<float> face(mapX(kPowerX, processor.getCompactPanelMode()), kPowerY, kPowerW, kPowerH);
-	paintPressedCap(g, powerCap, powerRecessColour, face,
+	const bool alt = processor.getAltPanelView();
+	const Skin &sk = skinOf(processor);
+	const juce::Rectangle<float> face(mx(sk.powerX), sk.powerY, sk.powerW, sk.powerH);
+	paintPressedCap(g, alt ? powerCapAlt : powerCap, alt ? powerRecessColourAlt : powerRecessColour, face,
 	                pressedRect(face, powerMotion.depth, kPowerPressShrink, kPowerPressDrop),
 	                powerMotion.depth);
 }
 
 void D110Panel::paintVolumeKnob(juce::Graphics &g) const
 {
+	const Skin &sk = skinOf(processor);
 	const float value = juce::jlimit(0.0f, 1.0f, volumeDisplayed < 0.0f ? processor.getMasterVolume()
 	                                                                    : volumeDisplayed);
-	// The disc image already carries its own pointer angle (kKnobPhotoDeg), so only the
-	// difference between where the pointer should be and where it was shot is applied.
-	// Unlike the old panel-photo cut-out, this always has to be drawn, never skipped at
-	// rest: kKnobPhotoDeg sits outside [kKnobMinDeg, kKnobMaxDeg] (see its own comment),
-	// so deg is never exactly zero for any valid value, and the panel photograph's own
-	// baked-in knob pointer underneath (at its own different, now-stale angle) has to
-	// stay covered at every value, not just "away from rest".
-	const float deg = kKnobMinDeg + (kKnobMaxDeg - kKnobMinDeg) * value - kKnobPhotoDeg;
+	// Measured from straight up, clockwise. The disc itself is always drawn, never skipped
+	// at rest: the picture's own baked-in knob pointer underneath has to stay covered at
+	// every value.
+	const float deg = sk.knobMinDeg + (sk.knobMaxDeg - sk.knobMinDeg) * value;
 
-	const float cx = mapX(kKnobCx, processor.getCompactPanelMode());
+	const float cx = mx(sk.knobCx);
 
 	juce::Graphics::ScopedSaveState ss(g);
-	juce::Path clip;
-	clip.addEllipse(cx - kKnobSpinR, kKnobCy - kKnobSpinR, kKnobSpinR * 2.0f, kKnobSpinR * 2.0f);
-	g.reduceClipRegion(clip);
+	if (sk.spriteClipR > 0.0f) {
+		juce::Path clip;
+		clip.addEllipse(cx - sk.spriteClipR, sk.knobCy - sk.spriteClipR, sk.spriteClipR * 2.0f, sk.spriteClipR * 2.0f);
+		g.reduceClipRegion(clip);
+	}
 
-	// The disc image was built centred in its own 65x65 canvas (see kKnobCx's own
-	// comment) - put it back at that same size (shifted, in compact mode) and spin
-	// about the true centre.
-	const float ox = std::floor(cx - kKnobSpinR - 1.0f);
-	const float oy = std::floor(kKnobCy - kKnobSpinR - 1.0f);
-	g.drawImageTransformed(volumeDisc, juce::AffineTransform::translation(ox, oy)
-	                                       .rotated(juce::degreesToRadians(deg), cx, kKnobCy));
+	// The disc image sits at an integer offset in the photo (see Skin::spriteX/Y), unrotated.
+	g.drawImageAt(processor.getAltPanelView() ? volumeDiscAlt : volumeDisc,
+	              int(mx(sk.spriteX)), int(sk.spriteY));
+
+	const float rad = juce::degreesToRadians(deg);
+	const float sx = std::sin(rad), sy = -std::cos(rad);
+	const float w = sk.ptrWidth;
+	g.setColour(sk.ptrColour);
+	g.drawLine(cx + sx * sk.ptrInner, sk.knobCy + sy * sk.ptrInner,
+	           cx + sx * sk.ptrOuter, sk.knobCy + sy * sk.ptrOuter, w);
+	// drawLine has flat ends; round them like the original capsule.
+	g.fillEllipse(cx + sx * sk.ptrInner - w * 0.5f, sk.knobCy + sy * sk.ptrInner - w * 0.5f, w, w);
+	g.fillEllipse(cx + sx * sk.ptrOuter - w * 0.5f, sk.knobCy + sy * sk.ptrOuter - w * 0.5f, w, w);
 }
 
 void D110Panel::paintMidiLamp(juce::Graphics &g) const
@@ -526,7 +642,8 @@ void D110Panel::paintMidiLamp(juce::Graphics &g) const
 	if (!processor.isPoweredOn() || !lastSnapshot.midiLedOn)
 		return;
 
-	const juce::Rectangle<float> lens(mapX(kLampX, processor.getCompactPanelMode()), kLampY, kLampW, kLampH);
+	const Skin &sk = skinOf(processor);
+	const juce::Rectangle<float> lens(mx(sk.lampX), sk.lampY, sk.lampW, sk.lampH);
 	g.setColour(juce::Colour(0xffe0472a));
 	g.fillRect(lens);
 	g.setColour(juce::Colour(0xffffc9b0).withAlpha(0.75f));
@@ -535,34 +652,37 @@ void D110Panel::paintMidiLamp(juce::Graphics &g) const
 
 void D110Panel::paintLcd(juce::Graphics &g) const
 {
-	const float lcdX = mapX(kLcdX, processor.getCompactPanelMode());
+	const Skin &sk = skinOf(processor);
+	const float lcdX = mx(sk.lcdX);
 
 	// Blank the window first and unconditionally: the photograph was taken of a
 	// unit with its own glass showing, and anything less than a guaranteed opaque
 	// cover here lets that ghost through under the live render.
 	g.setColour(processor.isPoweredOn() ? lcdScheme(processor.getLcdColor()).on : lcdGlassOff(processor.getLcdColor()));
-	g.fillRect(lcdX, kLcdY, kLcdW, kLcdH);
+	g.fillRect(lcdX, sk.lcdY, sk.lcdW, sk.lcdH);
 
 	if (lcdImage.isValid()) {
 		// The display is the one part of this panel anybody reads, and the window is often
 		// scaled well away from the artwork's own size, so it is worth resampling properly
 		// rather than at the default quality.
 		g.setImageResamplingQuality(juce::Graphics::highResamplingQuality);
-		g.drawImage(lcdImage, int(lcdX), int(kLcdY), int(kLcdW), int(kLcdH),
+		g.drawImage(lcdImage, int(lcdX), int(sk.lcdY), int(sk.lcdW), int(sk.lcdH),
 		            0, 0, lcdImage.getWidth(), lcdImage.getHeight(), false);
 	}
 }
 
 int D110Panel::buttonAt(juce::Point<float> p) const
 {
-	const bool compact = processor.getCompactPanelMode();
-	if (juce::Rectangle<float>(mapX(kBezelX, compact), kBezelY, kBezelW, kBezelH).contains(p))
+	const Skin &sk = skinOf(processor);
+	if (juce::Rectangle<float>(mx(sk.bezelX), sk.bezelY, sk.bezelW, sk.bezelH).contains(p))
 		return kPowerIndex;
 
-	for (int i = 0; i < kNumButtons; ++i)
-		if (juce::Rectangle<float>(mapX(kButtons[i].x, compact), kButtons[i].y, kButtons[i].w, kButtons[i].h)
-		        .contains(p))
+	for (int i = 0; i < kNumButtons; ++i) {
+		auto face = buttonRef(i, processor.getAltPanelView());
+		face.setX(mx(face.getX()));
+		if (face.contains(p))
 			return i;
+	}
 
 	return -1;
 }
@@ -611,7 +731,8 @@ void D110Panel::mouseDown(const juce::MouseEvent &e)
 	// the panel is what hit-tests it.
 	// Compact mode splices this whole section out of the photo - see kCompactCardCutStart/End -
 	// so there is nothing here to hit at all.
-	if (!processor.getCompactPanelMode()
+	// The ALT VIEW disables the card altogether, slot included.
+	if (!processor.getCompactPanelMode() && !processor.getAltPanelView()
 	    && juce::Rectangle<float>(kSlotHitX, kSlotHitY, kSlotHitW, kSlotHitH).contains(p)) {
 		if (onCardSlotClicked) onCardSlotClicked();
 		return;
@@ -660,7 +781,8 @@ void D110Panel::mouseDown(const juce::MouseEvent &e)
 		return;
 	}
 
-	if (p.getDistanceFrom({ mapX(kKnobCx, processor.getCompactPanelMode()), kKnobCy }) <= kKnobHitR) {
+	const Skin &sk = skinOf(processor);
+	if (p.getDistanceFrom({ mx(sk.knobCx), sk.knobCy }) <= sk.knobHitR) {
 		drag = Drag::volume;
 		dragStart = p;
 		dragStartValue = processor.getMasterVolume();
@@ -694,7 +816,8 @@ void D110Panel::mouseDoubleClick(const juce::MouseEvent &) {}
 
 void D110Panel::mouseWheelMove(const juce::MouseEvent &e, const juce::MouseWheelDetails &w)
 {
-	if (e.position.getDistanceFrom({ mapX(kKnobCx, processor.getCompactPanelMode()), kKnobCy }) <= kKnobHitR)
+	const Skin &sk = skinOf(processor);
+	if (e.position.getDistanceFrom({ mx(sk.knobCx), sk.knobCy }) <= sk.knobHitR)
 		processor.setMasterVolume(processor.getMasterVolume() + w.deltaY * 0.5f);
 }
 
@@ -2085,13 +2208,24 @@ void D110EditorPane::layoutUtility(juce::Rectangle<float> area) {
 	labels.push_back({ area.removeFromTop(15.0f), "WINDOW SIZE", true });
 	{
 		auto row = area.removeFromTop(28.0f);
-		const int currentPercent = juce::roundToInt(float(getWidth()) / float(D110Panel::currentRefW(processor.getCompactPanelMode())) * 100.0f);
+		const int currentPercent = juce::roundToInt(float(getWidth()) / float(D110Panel::currentRefW(processor.getCompactPanelMode(), processor.getAltPanelView())) * 100.0f);
 		zoomBounds = row.removeFromLeft(150.0f);
 		buttons.push_back({ zoomBounds, juce::String(currentPercent) + "%", 10 });
 		labels.push_back({ row.reduced(12.0f, 0.0f),
 		                   "click to step through 50/75/100/125/150%, right-click to pick "
 		                   "one directly - a plain resize, not a window manager maximise "
 		                   "(see the panel notes on why)", false });
+	}
+	area.removeFromTop(18.0f);
+
+	labels.push_back({ area.removeFromTop(15.0f), "ALT VIEW", true });
+	{
+		auto row = area.removeFromTop(28.0f);
+		buttons.push_back({ row.removeFromLeft(150.0f), processor.getAltPanelView() ? "ON" : "OFF", 27 });
+		labels.push_back({ row.reduced(12.0f, 0.0f),
+		                   "swaps the front panel for the alternative flat artwork, with a "
+		                   "classic VOLUME knob - and disables the MEMORY CARD (slot not "
+		                   "clickable, no card on screen)", false });
 	}
 	area.removeFromTop(18.0f);
 
@@ -2910,7 +3044,7 @@ void D110EditorPane::paintPartialMuteCell(juce::Graphics &g, const Cell &c, bool
 // existed, matching how the panel's own buttons/knobs already behave under the same toggle.
 float D110EditorPane::fontScale() const {
 	const float s = float(getWidth())
-	              / float(D110Panel::currentRefW(processor.getCompactPanelMode()));
+	              / float(D110Panel::currentRefW(processor.getCompactPanelMode(), processor.getAltPanelView()));
 	return juce::jlimit(0.75f, 1.4f, s / (1500.0f / float(D110Panel::kRefW)));
 }
 
@@ -3353,6 +3487,14 @@ void D110EditorPane::buttonPressed(int id) {
 		return;
 	}
 #endif
+	if (id == 27) {
+		processor.setAltPanelView(!processor.getAltPanelView());
+		// Same path as PANEL SIZE: the reference width changes with the artwork.
+		if (onCompactPanelModeChanged) onCompactPanelModeChanged();
+		layout();
+		repaint();
+		return;
+	}
 	if (id == 14) {
 		processor.setCompactPanelMode(!processor.getCompactPanelMode());
 		if (onCompactPanelModeChanged) onCompactPanelModeChanged();
@@ -3406,7 +3548,7 @@ void D110EditorPane::buttonPressed(int id) {
 	}
 	if (id == 10) {
 		static constexpr int kZoomPresets[] = { 50, 75, 100, 125, 150 };
-		const int current = juce::roundToInt(float(getWidth()) / float(D110Panel::currentRefW(processor.getCompactPanelMode())) * 100.0f);
+		const int current = juce::roundToInt(float(getWidth()) / float(D110Panel::currentRefW(processor.getCompactPanelMode(), processor.getAltPanelView())) * 100.0f);
 		int next = kZoomPresets[0];
 		for (size_t i = 0; i < std::size(kZoomPresets); ++i)
 			if (kZoomPresets[i] > current) { next = kZoomPresets[i]; break; }
@@ -3831,7 +3973,7 @@ void D110EditorPane::mouseDown(const juce::MouseEvent &e) {
 		if (tab == Tab::Utility && zoomBounds.contains(p)) {
 			juce::PopupMenu m;
 			static constexpr int kZoomPresets[] = { 50, 75, 100, 125, 150 };
-			const int current = juce::roundToInt(float(getWidth()) / float(D110Panel::currentRefW(processor.getCompactPanelMode())) * 100.0f);
+			const int current = juce::roundToInt(float(getWidth()) / float(D110Panel::currentRefW(processor.getCompactPanelMode(), processor.getAltPanelView())) * 100.0f);
 			for (int pct : kZoomPresets) m.addItem(pct, juce::String(pct) + "%", true, pct == current);
 			m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this).withMousePosition(), [this](int result) {
 				if (result > 0 && onRequestZoom) onRequestZoom(result);
@@ -4122,6 +4264,12 @@ void D110MemoryCard::setGeometry(float panelScale, float totalRefHeight) {
 // the slot: a seated card sticks out of it by eighteen points, and everything above that is
 // the unit, over which the card has no business climbing.
 void D110MemoryCard::updateBounds() {
+	// Compact mode splices the slot out and ALT VIEW disables the card: it must stay hidden even
+	// while an insert animation started just before the switch is still running.
+	if (processor.getCompactPanelMode() || processor.getAltPanelView()) {
+		setVisible(false);
+		return;
+	}
 	const auto p = position();
 	const float visibleTop = juce::jmax(p.y, kCardClipTop);
 	const float visibleH = p.y + kCardHeight - visibleTop;
@@ -4298,8 +4446,10 @@ D110AudioProcessorEditor::D110AudioProcessorEditor(D110AudioProcessor &p)
 	sequencerRetroPanel.setVisible(processor.getSequencerRetroMode());
 	sequencerGridPanel.setVisible(processor.getSequencerGridMode());
 #endif
-	// Nothing to show in compact mode - the slot itself is spliced out of the panel photo.
-	card.setVisible(!processor.getCompactPanelMode());
+	// Nothing to show in compact mode - the slot itself is spliced out of the panel photo - or in
+	// ALT VIEW, which disables the card altogether.
+	card.setVisible(cardUsable());
+	appliedRefW = D110Panel::currentRefW(processor.getCompactPanelMode(), processor.getAltPanelView());
 
 	panel.onCardSlotClicked = [this] { card.toggle(); };
 #if JucePlugin_Build_Standalone
@@ -4328,35 +4478,39 @@ D110AudioProcessorEditor::D110AudioProcessorEditor(D110AudioProcessor &p)
 	// shrinks/grows by exactly the spliced section's own screen size rather than jumping to a
 	// fixed zoom percent; a card left out of its slot is put back first, the same guard the
 	// drawer-close handler above already needs, since compact mode hides the card outright.
+	// The same callback serves the ALT VIEW toggle, which also changes the reference width, so
+	// the width in force before the flip is remembered (appliedRefW) rather than derived from
+	// the compact flag alone.
 	editorPane.onCompactPanelModeChanged = [this] {
 		if (card.isOut()) card.insert();
-		const bool compact = processor.getCompactPanelMode();
-		const float s = float(getWidth()) / float(D110Panel::currentRefW(!compact));
-		const int targetW = juce::roundToInt(float(D110Panel::currentRefW(compact)) * s);
-		constrainer.setFixedAspectRatio(double(D110Panel::currentRefW(compact)) / double(totalRefHeight()));
-		constrainer.setSizeLimits(kMinWindowWidth, 100, D110Panel::currentRefW(compact) * 2, 4000);
-		card.setVisible(!compact);
-		setSize(targetW, int(totalRefHeight() * (float(targetW) / float(D110Panel::currentRefW(compact))) + 0.5f));
+		const int refW = D110Panel::currentRefW(processor.getCompactPanelMode(), processor.getAltPanelView());
+		const float s = float(getWidth()) / float(appliedRefW);
+		appliedRefW = refW;
+		const int targetW = juce::roundToInt(float(refW) * s);
+		constrainer.setFixedAspectRatio(double(refW) / double(totalRefHeight()));
+		constrainer.setSizeLimits(kMinWindowWidth, 100, refW * 2, 4000);
+		card.setVisible(cardUsable());
+		setSize(targetW, int(totalRefHeight() * (float(targetW) / float(refW)) + 0.5f));
 		repaint();
 	};
 
 	// The drawer is closed when the window opens: the plugin is the unit, the editor is an
 	// addition to it, and until asked for it takes no space.
-	constrainer.setFixedAspectRatio(double(D110Panel::currentRefW(processor.getCompactPanelMode())) / double(totalRefHeight()));
-	constrainer.setSizeLimits(kMinWindowWidth, 100, D110Panel::currentRefW(processor.getCompactPanelMode()) * 2, 4000);
+	constrainer.setFixedAspectRatio(double(D110Panel::currentRefW(processor.getCompactPanelMode(), processor.getAltPanelView())) / double(totalRefHeight()));
+	constrainer.setSizeLimits(kMinWindowWidth, 100, D110Panel::currentRefW(processor.getCompactPanelMode(), processor.getAltPanelView()) * 2, 4000);
 	setConstrainer(&constrainer);
 
 	setResizable(true, true);
 	// Width kept from the previous session / project, when there is one (GitHub issue #9 on JiV-881).
 	const bool restoredWidth = processor.editorWidth >= kMinWindowWidth;
 	const int startW = restoredWidth ? juce::jmin(processor.editorWidth, 8000) : 1500;
-	setSize(startW, int(totalRefHeight() * (float(startW) / float(D110Panel::currentRefW(processor.getCompactPanelMode()))) + 0.5f));
+	setSize(startW, int(totalRefHeight() * (float(startW) / float(D110Panel::currentRefW(processor.getCompactPanelMode(), processor.getAltPanelView()))) + 0.5f));
 	sizeTracking = true;
 	if (!restoredWidth)
 	juce::MessageManager::callAsync([safe = juce::Component::SafePointer<D110AudioProcessorEditor>(this)] {
 		auto *self = safe.getComponent();
 		if (self == nullptr || self->getWidth() >= kStartWindowWidth) return;
-		const float refW = float(D110Panel::currentRefW(self->processor.getCompactPanelMode()));
+		const float refW = float(D110Panel::currentRefW(self->processor.getCompactPanelMode(), self->processor.getAltPanelView()));
 		self->setSize(kStartWindowWidth, int(self->totalRefHeight() * (float(kStartWindowWidth) / refW) + 0.5f));
 	});
 
@@ -4365,8 +4519,8 @@ D110AudioProcessorEditor::D110AudioProcessorEditor(D110AudioProcessor &p)
 	// why this exists instead of a maximise button (feedback_no_blind_wm_fixes memory: a native
 	// one sent the window off-screen on Alan's real desktop, twice now).
 	editorPane.onRequestZoom = [this](int percent) {
-		const int targetW = juce::roundToInt(float(D110Panel::currentRefW(processor.getCompactPanelMode())) * float(percent) / 100.0f);
-		setSize(targetW, int(totalRefHeight() * (float(targetW) / float(D110Panel::currentRefW(processor.getCompactPanelMode()))) + 0.5f));
+		const int targetW = juce::roundToInt(float(D110Panel::currentRefW(processor.getCompactPanelMode(), processor.getAltPanelView())) * float(percent) / 100.0f);
+		setSize(targetW, int(totalRefHeight() * (float(targetW) / float(D110Panel::currentRefW(processor.getCompactPanelMode(), processor.getAltPanelView()))) + 0.5f));
 	};
 
 	// The THEME toggle flips a process-wide palette (UiTheme.h) - every drawer needs a
@@ -4491,15 +4645,15 @@ float D110AudioProcessorEditor::totalRefHeight() const {
 }
 
 void D110AudioProcessorEditor::applySize() {
-	constrainer.setFixedAspectRatio(double(D110Panel::currentRefW(processor.getCompactPanelMode())) / double(totalRefHeight()));
-	const float s = float(getWidth()) / float(D110Panel::currentRefW(processor.getCompactPanelMode()));
+	constrainer.setFixedAspectRatio(double(D110Panel::currentRefW(processor.getCompactPanelMode(), processor.getAltPanelView())) / double(totalRefHeight()));
+	const float s = float(getWidth()) / float(D110Panel::currentRefW(processor.getCompactPanelMode(), processor.getAltPanelView()));
 	setSize(getWidth(), int(totalRefHeight() * s + 0.5f));
 }
 
 // The handle strip: full width, right under the photograph. Full width so that it reads as
 // a drawer being pulled out, not as a button.
 juce::Rectangle<float> D110AudioProcessorEditor::handleBand() const {
-	const float s = float(getWidth()) / float(D110Panel::currentRefW(processor.getCompactPanelMode()));
+	const float s = float(getWidth()) / float(D110Panel::currentRefW(processor.getCompactPanelMode(), processor.getAltPanelView()));
 	return { 0.0f, float(D110Panel::kRefH) * s, float(getWidth()), kHandleRefH * s };
 }
 
@@ -4507,7 +4661,7 @@ juce::Rectangle<float> D110AudioProcessorEditor::handleBand() const {
 // it follows that drawer up and down as it opens and closes, exactly as the drawer's own
 // band follows the panel.
 juce::Rectangle<float> D110AudioProcessorEditor::keyboardHandleBand() const {
-	const float s = float(getWidth()) / float(D110Panel::currentRefW(processor.getCompactPanelMode()));
+	const float s = float(getWidth()) / float(D110Panel::currentRefW(processor.getCompactPanelMode(), processor.getAltPanelView()));
 	const float top = (float(D110Panel::kRefH) + kHandleRefH + expansion * editorPaneRefH) * s;
 	return { 0.0f, top, float(getWidth()), kKeyboardHandleRefH * s };
 }
@@ -4519,7 +4673,7 @@ juce::Rectangle<float> D110AudioProcessorEditor::sequencerHandleBand() const {
 #if !JucePlugin_Build_Standalone
 	return {};
 #else
-	const float s = float(getWidth()) / float(D110Panel::currentRefW(processor.getCompactPanelMode()));
+	const float s = float(getWidth()) / float(D110Panel::currentRefW(processor.getCompactPanelMode(), processor.getAltPanelView()));
 	const float top = (float(D110Panel::kRefH) + kHandleRefH + expansion * editorPaneRefH
 	                  + kKeyboardHandleRefH + keyboardExpansion * keyboardPaneRefH) * s;
 	return { 0.0f, top, float(getWidth()), kSequencerHandleRefH * s };
@@ -4535,7 +4689,7 @@ juce::Rectangle<float> D110AudioProcessorEditor::sequencerResizeBand() const {
 #if !JucePlugin_Build_Standalone
 	return {};
 #else
-	const float s = float(getWidth()) / float(D110Panel::currentRefW(processor.getCompactPanelMode()));
+	const float s = float(getWidth()) / float(D110Panel::currentRefW(processor.getCompactPanelMode(), processor.getAltPanelView()));
 	const float top = (float(D110Panel::kRefH) + kHandleRefH + expansion * editorPaneRefH
 	                  + kKeyboardHandleRefH + keyboardExpansion * keyboardPaneRefH
 	                  + kSequencerHandleRefH + sequencerExpansion * sequencerPaneRefH) * s;
@@ -4551,7 +4705,7 @@ juce::Rectangle<float> D110AudioProcessorEditor::keyboardResizeBand() const {
 #if JucePlugin_Build_Standalone
 	return {};
 #else
-	const float s = float(getWidth()) / float(D110Panel::currentRefW(processor.getCompactPanelMode()));
+	const float s = float(getWidth()) / float(D110Panel::currentRefW(processor.getCompactPanelMode(), processor.getAltPanelView()));
 	const float top = (float(D110Panel::kRefH) + kHandleRefH + expansion * editorPaneRefH
 	                  + kKeyboardHandleRefH + keyboardExpansion * keyboardPaneRefH) * s;
 	return { 0.0f, top, float(getWidth()), keyboardExpansion * kKeyboardResizeGripRefH * s };
@@ -4684,7 +4838,7 @@ void D110AudioProcessorEditor::mouseDown(const juce::MouseEvent &e)
 
 void D110AudioProcessorEditor::mouseDrag(const juce::MouseEvent &e)
 {
-	const float s = float(getWidth()) / float(D110Panel::currentRefW(processor.getCompactPanelMode()));
+	const float s = float(getWidth()) / float(D110Panel::currentRefW(processor.getCompactPanelMode(), processor.getAltPanelView()));
 	const float deltaY = e.position.y - resizeDragStartY;
 
 	if (keyboardHandlePressed) {
@@ -4836,8 +4990,8 @@ void D110AudioProcessorEditor::resized()
 		});
 	}
 
-	const float s = float(getWidth()) / float(D110Panel::currentRefW(processor.getCompactPanelMode()));
-	panel.setBounds(0, 0, D110Panel::currentRefW(processor.getCompactPanelMode()), D110Panel::kRefH);
+	const float s = float(getWidth()) / float(D110Panel::currentRefW(processor.getCompactPanelMode(), processor.getAltPanelView()));
+	panel.setBounds(0, 0, D110Panel::currentRefW(processor.getCompactPanelMode(), processor.getAltPanelView()), D110Panel::kRefH);
 	panel.setTransform(juce::AffineTransform::scale(s));
 	panel.setDisplayScale(s);
 
@@ -4868,5 +5022,5 @@ void D110AudioProcessorEditor::resized()
 	// how far the window currently reaches: from those it sets its own bounds. Nothing to
 	// position in compact mode - the slot itself is spliced out of the photo, and the card
 	// stays hidden (see the constructor and onCompactPanelModeChanged).
-	if (!processor.getCompactPanelMode()) card.setGeometry(s, totalRefHeight());
+	if (cardUsable()) card.setGeometry(s, totalRefHeight());
 }

@@ -63,11 +63,30 @@ public:
 	static constexpr float kCompactCardCutEnd = 1865.0f;
 	static constexpr float kCompactCardShift = kCompactCardCutEnd - kCompactCardCutStart;
 	static constexpr int kCompactRefW = 1497;
-	static int currentRefW(bool compact) { return compact ? kCompactRefW : kRefW; }
-	static float mapX(float refX, bool compact) {
+	//
+	// ALT VIEW (issue #10) swaps in docs/panel_reference_alt_256.png and
+	// panel_reference_compact_alt_256.png, the alt artwork resampled to the same 256 px height,
+	// 2061 and 1521 px wide. The compact alt photo is again a pure splice of the full one
+	// (checked column by column): offset 250 up to the card section, then 474, i.e. a left cut
+	// of [0,250) and a card cut of [1626,1850) - the same shape of cuts as the normal photo,
+	// hence the same mapX() with its own numbers. Everything else about the alt skin (LCD,
+	// buttons, POWER, lamp, knob) lives in PluginEditor.cpp's Skin.
+	static constexpr int kAltRefW = 2061;
+	static constexpr float kAltCompactLeftCutEnd = 250.0f;
+	static constexpr float kAltCompactCardCutStart = 1626.0f;
+	static constexpr float kAltCompactCardCutEnd = 1850.0f;
+	static constexpr float kAltCompactCardShift = kAltCompactCardCutEnd - kAltCompactCardCutStart;
+	static constexpr int kAltCompactRefW = 1521;
+	static int currentRefW(bool compact, bool alt = false) {
+		return alt ? (compact ? kAltCompactRefW : kAltRefW) : (compact ? kCompactRefW : kRefW);
+	}
+	static float mapX(float refX, bool compact, bool alt = false) {
 		if (!compact) return refX;
-		float x = refX - kCompactLeftCutEnd;
-		if (refX >= kCompactCardCutEnd) x -= kCompactCardShift;
+		const float leftCut = alt ? kAltCompactLeftCutEnd : kCompactLeftCutEnd;
+		const float cardEnd = alt ? kAltCompactCardCutEnd : kCompactCardCutEnd;
+		const float cardShift = alt ? kAltCompactCardShift : kCompactCardShift;
+		float x = refX - leftCut;
+		if (refX >= cardEnd) x -= cardShift;
 		return x;
 	}
 
@@ -134,8 +153,12 @@ private:
 	int buttonAt(juce::Point<float>) const; // index into kButtons, kPowerIndex, or -1
 	void setButtonState(int index, bool down); // closes/opens the real scan-matrix switch
 
-	juce::Image cutOut(juce::Rectangle<float>) const;
-	juce::Colour recessColourOf(juce::Rectangle<float>) const;
+	static juce::Image cutOut(const juce::Image &, juce::Rectangle<float>);
+	static juce::Colour recessColourOf(const juce::Image &, juce::Rectangle<float>);
+	// Button `index`'s face in the full-width photo of the normal or the alt look, before mapX().
+	juce::Rectangle<float> buttonRef(int index, bool alt) const;
+	// mapX() for the current compact/alt state.
+	float mx(float refX) const;
 
 	void rebuildLcdImage();
 	void paintLcd(juce::Graphics &) const;
@@ -153,6 +176,7 @@ private:
 
 	juce::Image panelImage;
 	juce::Image panelImageCompact; // see kCompactCutStart/End above
+	juce::Image panelImageAlt, panelImageCompactAlt; // ALT VIEW, see kAltRefW above
 
 	juce::Image lcdImage;                    // offscreen dot-matrix render, rebuilt only on change
 	float lcdDisplayScale = 1.0f;            // last scale passed to setDisplayScale()
@@ -160,7 +184,14 @@ private:
 	std::vector<juce::Colour> recessColours; // the recess each cap sinks into
 	juce::Image powerCap;
 	juce::Colour powerRecessColour;
-	juce::Image volumeDisc;                  // the knob, lifted out to be spun about its own axis
+	juce::Image volumeDisc;                  // the knob, pointerless, drawn upright under the drawn pointer
+	// ALT VIEW's own set of the above, each cut from the alt photo at alt coordinates.
+	std::vector<juce::Image> capImagesAlt;
+	std::vector<juce::Colour> recessColoursAlt;
+	juce::Image powerCapAlt;
+	juce::Colour powerRecessColourAlt;
+	juce::Image volumeDiscAlt;
+	bool lastAltView = false;
 
 	// The display exactly as the real MSM6222B renders it: one byte per dot row, bit 4
 	// leftmost. No font table and no character codes are involved on this path - the
@@ -771,6 +802,10 @@ private:
 	D110SequencerGridPanel sequencerGridPanel;
 	FitWidthConstrainer constrainer;
 
+	// The memory card exists on screen only with the full-width photographic panel: compact mode
+	// splices its slot out, ALT VIEW disables it.
+	bool cardUsable() const { return !processor.getCompactPanelMode() && !processor.getAltPanelView(); }
+	int appliedRefW = 0;           // reference width the window is currently scaled against
 	float expansion = 0.0f;        // smoothed 0..1
 	float expansionTarget = 0.0f;  // what the click on the handle asked for
 	bool handleHover = false;

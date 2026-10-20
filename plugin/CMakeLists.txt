@@ -100,7 +100,10 @@ juce_add_binary_data(D110PanelData
             "${CMAKE_CURRENT_SOURCE_DIR}/../docs/memory_card_m256d.png"
             "${CMAKE_CURRENT_SOURCE_DIR}/../docs/D20infos.png"
             "${CMAKE_CURRENT_SOURCE_DIR}/../docs/app_icon.png"
-            "${CMAKE_CURRENT_SOURCE_DIR}/../docs/volume_knob.png")
+            "${CMAKE_CURRENT_SOURCE_DIR}/../docs/volume_knob_disc.png"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../docs/panel_reference_alt_256.png"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../docs/panel_reference_compact_alt_256.png"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../docs/volume_knob_alt_disc.png")
 
 # On Windows, plugins conventionally live in the shared Program Files VST3 folder.
 # Elsewhere, JUCE's own default (~/Library/Audio/Plug-Ins/VST3 on macOS, ~/.vst3 on Linux)

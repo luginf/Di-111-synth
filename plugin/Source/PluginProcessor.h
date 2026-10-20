@@ -406,6 +406,14 @@ public:
 	bool getCompactPanelMode() const { return compactPanelMode; }
 	void setCompactPanelMode(bool compact) { compactPanelMode = compact; }
 
+	// Alternative front-panel artwork (Utility tab, "ALT VIEW") - issue #10, 2026-10-20: flat
+	// panel_reference_alt*.png instead of the photograph, a classic VOLUME knob with a drawn
+	// pointer, and the MEMORY CARD disabled (slot not clickable, card never shown). The memory
+	// card's own insert/eject state is left alone, it simply isn't reachable while this is on.
+	// Orthogonal to compactPanelMode: all four combinations exist.
+	bool getAltPanelView() const { return altPanelView; }
+	void setAltPanelView(bool alt) { altPanelView = alt; }
+
 	// Colour scheme of the front-panel LCD (index into D110Panel's own table, 0 = the original green).
 	// Right-click menu "LCD"; saved with the state like compactPanelMode.
 	int getLcdColor() const { return lcdColor; }
@@ -1056,6 +1064,8 @@ private:
 	bool sequencerGridMode = false;
 	int gridRowHeight = 0; // see D110SequencerHost::getGridRowHeight()
 	bool compactPanelMode = false;
+	// See getAltPanelView().
+	bool altPanelView = false;
 	int lcdColor = 0;
 	juce::String retroKeyBindings;
 	bool retroLcdCompactMode = false;

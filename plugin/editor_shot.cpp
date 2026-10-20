@@ -71,7 +71,13 @@ int main(int argc, char **argv) {
 	// third argument overrides it - handy for checking how the LCD indicator behaves at the very
 	// lower bound of the constrainer (900), not only at the default window.
 	const int width = (argc > 3) ? std::atoi(argv[3]) : 1500;
-	const float scale = float(width) / float(D110Panel::kRefW);
+	// argv[6]: "alt" renders the ALT VIEW skin, argv[7]: "compact" the compact panel - set before
+	// the scale is taken, since both change the reference width.
+	if (argc > 6) proc.setAltPanelView(juce::String(argv[6]) == "alt");
+	if (argc > 7) proc.setCompactPanelMode(juce::String(argv[7]) == "compact");
+	// D110_SHOT_VOLUME (0..1) parks the VOLUME knob, to check its pointer on the printed MIN/MAX ticks.
+	if (const char *v = std::getenv("D110_SHOT_VOLUME")) proc.setMasterVolume(float(std::atof(v)));
+	const float scale = float(width) / float(D110Panel::currentRefW(proc.getCompactPanelMode(), proc.getAltPanelView()));
 	// D110_SHOT_HEIGHT overrides the pane height, to check the short-window layouts (scrollbars).
 	const int height = std::getenv("D110_SHOT_HEIGHT") != nullptr
 	                       ? std::atoi(std::getenv("D110_SHOT_HEIGHT"))
