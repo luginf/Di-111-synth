@@ -107,6 +107,18 @@ void D110Keyboard::showContextMenu(int noteForHold) {
 	m.addItem(4000, "PC keyboard input (tracker-style)", true, pcKeyboardEnabled);
 	m.addSubMenu("PC keyboard layout", layoutMenu, pcKeyboardEnabled);
 	m.addSeparator();
+	// Velocity of every note this keyboard plays (mouse, touch, PC keys, held note).
+	{
+		const int velocity = host.getKeyboardVelocity();
+		const bool preset = velocity == 60 || velocity == 80 || velocity == 100 || velocity == 127;
+		juce::PopupMenu velocityMenu;
+		for (int v : { 60, 80, 100, 127 })
+			velocityMenu.addItem(7000 + v, juce::String(v), true, velocity == v);
+		velocityMenu.addItem(7000, preset ? juce::String("Custom...")
+		                                  : "Custom (" + juce::String(velocity) + ")...", true, !preset);
+		m.addSubMenu("Velocity (" + juce::String(velocity) + ")", velocityMenu);
+		m.addSeparator();
+	}
 	// Persisted through `host` since 2026-09-03 (Alan's request) - unlike octaveShift, which
 	// stays session-only and resets to 0 on every relaunch.
 	{
@@ -120,6 +132,23 @@ void D110Keyboard::showContextMenu(int noteForHold) {
 	m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this).withMousePosition(),
 	                 [this, noteForHold](int result) {
 		if (result == 5000) { toggleHoldNote(noteForHold); return; }
+		if (result > 7000 && result <= 7127) { host.setKeyboardVelocity(result - 7000); return; }
+		if (result == 7000) {
+			auto *w = new juce::AlertWindow("Keyboard velocity",
+			                                "Velocity of the on-screen keyboard notes (1-127):",
+			                                juce::MessageBoxIconType::NoIcon);
+			w->addTextEditor("velocity", juce::String(host.getKeyboardVelocity()));
+			w->addButton("OK", 1, juce::KeyPress(juce::KeyPress::returnKey));
+			w->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+			juce::Component::SafePointer<D110Keyboard> safe(this);
+			w->enterModalState(true, juce::ModalCallbackFunction::create([safe, w](int r) {
+				if (r == 1 && safe != nullptr)
+					safe->host.setKeyboardVelocity(
+						juce::jlimit(1, 127, w->getTextEditorContents("velocity").getIntValue()));
+				delete w;
+			}), false);
+			return;
+		}
 		if (result >= 1001 && result <= 1016) {
 			midiChannel = result - 1000;
 			host.setKeyboardMidiChannel(midiChannel);
@@ -168,7 +197,7 @@ void D110Keyboard::toggleHoldNote(int note) {
 		sendNote(note, 0.0f, false);
 	} else {
 		heldNotes.insert(note);
-		sendNote(note, 0.85f, true);
+		sendNote(note, host.getKeyboardVelocity() / 127.0f, true);
 	}
 	repaint();
 }
@@ -187,7 +216,7 @@ bool D110Keyboard::keyStateChanged(bool /*isKeyDown*/) {
 		const bool down = juce::KeyPress::isKeyCurrentlyDown((int)c);
 		if (down == pcKeyDown[i]) continue;
 		pcKeyDown[i] = down;
-		sendNote(kLowestNote + octaveShift * 12 + keys[i].semitoneFromBase, 0.85f, down);
+		sendNote(kLowestNote + octaveShift * 12 + keys[i].semitoneFromBase, host.getKeyboardVelocity() / 127.0f, down);
 		used = true;
 	}
 	if (used) repaint(); // a tracker key just lit/unlit - see isPcKeyDownForNote()
@@ -298,7 +327,7 @@ void D110Keyboard::setHeldNoteForSource(int sourceIndex, int note) {
 	if (previous >= 0 && heldNotes.count(previous) == 0) sendNote(previous, 0.0f, false);
 	if (note >= 0) heldNoteBySource[sourceIndex] = note;
 	else if (it != heldNoteBySource.end()) heldNoteBySource.erase(it);
-	if (note >= 0) sendNote(note, 0.85f, true);
+	if (note >= 0) sendNote(note, host.getKeyboardVelocity() / 127.0f, true);
 	repaint();
 }
 

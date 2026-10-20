@@ -201,6 +201,8 @@ public:
     void setKeyboardPcLayout(int layout) override { keyboardPcLayout = layout; }
     int getKeyboardNumOctaves() const override { return keyboardNumOctaves; }
     void setKeyboardNumOctaves(int numOctaves) override { keyboardNumOctaves = numOctaves; }
+    int getKeyboardVelocity() const override { return keyboardVelocity; }
+    void setKeyboardVelocity(int velocity) override { keyboardVelocity = juce::jlimit(1, 127, velocity); }
 
     // Normal/Big text and control size - see UiTheme.h's own d110ui::FontScale comment for why
     // actually applying it (juce::Desktop::getInstance().setGlobalScaleFactor()) is D50Editor's
@@ -274,6 +276,7 @@ private:
     bool keyboardPcInputEnabled = false;
     int keyboardPcLayout = 0;
     int keyboardNumOctaves = 2;
+    int keyboardVelocity = 100;
     bool uiFontScaleBig = false;
     bool patchEditFolded = false;
 public:

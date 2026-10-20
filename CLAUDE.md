@@ -37,7 +37,7 @@ behaviour. Don't duplicate that here; this file is about how to work in the repo
   `D110MemoryCard` = the memory card slot widget.
 - `plugin/Source/D110Keyboard.h/.cpp` - the on-screen test keyboard drawer (mouse piano +
   tracker-style PC keyboard input, MIDI channel/omni via right-click), independently
-  foldable in the plugin, open by default. Keys light up for two independent reasons: struck
+  foldable in the plugin, open by default. Right-click menu: MIDI channel/remap, PC keyboard layout, **Velocity** (60/80/100/127 or custom, default 100, persisted via the host - `getKeyboardVelocity()`, added 2026-10-20 after the JiV-881 got the same option), size. Keys light up for two independent reasons: struck
   directly here (mouse/PC keyboard - instant, no polling) or `D110KeyboardHost::isNoteActive()`
   (any note reaching the app another way - external MIDI In, sequencer playback, a DAW host
   track - a small lock-free per-note array the host's audio/MIDI thread writes to, polled by

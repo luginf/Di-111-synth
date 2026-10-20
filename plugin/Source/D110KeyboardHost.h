@@ -37,6 +37,12 @@ public:
 	virtual int getKeyboardNumOctaves() const = 0;
 	virtual void setKeyboardNumOctaves(int numOctaves) = 0;
 
+	// Velocity (1-127) of the notes the on-screen keyboard plays - Alan's request, 2026-10-20,
+	// after the same option went into the JiV-881's keyboard. Default 100. Persisted like the
+	// settings above.
+	virtual int getKeyboardVelocity() const = 0;
+	virtual void setKeyboardVelocity(int velocity) = 0;
+
 	// For the on-screen keyboard's own activity LEDs: true if `note` (0-127, any channel) is
 	// currently sounding anywhere in the app - external MIDI In, sequencer playback, or (in
 	// the plugin) the DAW host's own track - as opposed to what was struck directly on this

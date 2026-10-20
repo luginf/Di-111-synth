@@ -472,6 +472,8 @@ private:
 		// it, since there's no right mouse button (or safe long-press substitute - see
 		// D110Keyboard.h) on a touchscreen.
 		m.addItem("Keyboard channel...", [this] { keyboard.showContextMenu(); });
+		m.addItem("Volume boost (+3.5 dB, may clip)", true, processor.getVolumeBoost(),
+		          [this] { processor.setVolumeBoost(!processor.getVolumeBoost()); });
 		m.addSeparator();
 
 		// Drive an external hardware synth off whatever the D-110 itself is playing (Alan's

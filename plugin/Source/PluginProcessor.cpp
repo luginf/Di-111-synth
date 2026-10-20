@@ -121,10 +121,47 @@ bool D110AudioProcessor::isBusesLayoutSupported(const BusesLayout &layouts) cons
 	return true;
 }
 
+namespace {
+// Tiny "key=value" file of global UI preferences (see D110AudioProcessor::setLcdColor()).
+juce::File uiPrefsFile() { return d110appdata::newRoot().getChildFile("ui_prefs.txt"); }
+
+int readUiPref(const juce::String &key, int fallback) {
+	juce::StringArray lines;
+	uiPrefsFile().readLines(lines);
+	for (const auto &line : lines)
+		if (line.startsWith(key + "="))
+			return line.fromFirstOccurrenceOf("=", false, false).trim().getIntValue();
+	return fallback;
+}
+
+void writeUiPref(const juce::String &key, int value) {
+	juce::StringArray lines;
+	uiPrefsFile().readLines(lines);
+	bool found = false;
+	for (auto &line : lines)
+		if (line.startsWith(key + "=")) { line = key + "=" + juce::String(value); found = true; }
+	if (!found) lines.add(key + "=" + juce::String(value));
+	uiPrefsFile().getParentDirectory().createDirectory();
+	uiPrefsFile().replaceWithText(lines.joinIntoString("\n") + "\n");
+}
+} // namespace
+
+void D110AudioProcessor::setLcdColor(int index) {
+	lcdColor = index;
+	writeUiPref("lcd_color", index);
+}
+
+void D110AudioProcessor::setVolumeBoost(bool enabled) {
+	volumeBoost = enabled;
+	writeUiPref("volume_boost", enabled ? 1 : 0);
+}
+
 D110AudioProcessor::D110AudioProcessor()
 	: AudioProcessor(createBuses()),
 	  parameters(*this, nullptr, "PARAMS", createParameterLayout()) {
 	masterVolumeParam = parameters.getRawParameterValue("masterVolume");
+	lcdColor = readUiPref("lcd_color", 0);
+	volumeBoost = readUiPref("volume_boost", 0) != 0;
 	reverbEnabledParam = parameters.getRawParameterValue("reverbEnabled");
 	superModeParam = parameters.getRawParameterValue("superMode");
 
@@ -1492,7 +1529,7 @@ void D110AudioProcessor::processBlock(juce::AudioBuffer<float> &buffer, juce::Mi
 	if (static_cast<int>(interleavedScratch.size()) < numSamples * 2)
 		interleavedScratch.resize(static_cast<size_t>(numSamples) * 2);
 
-	const float masterVolume = masterVolumeParam->load();
+	const float masterVolume = masterVolumeParam->load() * (volumeBoost.load() ? 1.5f : 1.0f);
 	const int numOutChannels = buffer.getNumChannels();
 
 	// The six INDIVIDUAL buses are disabled by default (createBuses()), so most hosts and
@@ -3035,6 +3072,7 @@ void D110AudioProcessor::getStateInformation(juce::MemoryBlock &destData) {
 	xml->setAttribute("kbPcInput", keyboardPcInput ? 1 : 0);
 	xml->setAttribute("kbPcLayout", keyboardPcLayout);
 	xml->setAttribute("kbNumOctaves", keyboardNumOctaves);
+	xml->setAttribute("kbVelocity", keyboardVelocity);
 	xml->setAttribute("editorWidth", editorWidth);
 
 	// Utility tab's THEME toggle - see getUiThemeLight().
@@ -3225,6 +3263,7 @@ void D110AudioProcessor::setStateInformation(const void *data, int sizeInBytes) 
 	setKeyboardPcInputEnabled(xml->getIntAttribute("kbPcInput", keyboardPcInput ? 1 : 0) != 0);
 	setKeyboardPcLayout(xml->getIntAttribute("kbPcLayout", keyboardPcLayout));
 	setKeyboardNumOctaves(xml->getIntAttribute("kbNumOctaves", keyboardNumOctaves));
+	setKeyboardVelocity(xml->getIntAttribute("kbVelocity", keyboardVelocity));
 	editorWidth = xml->getIntAttribute("editorWidth", editorWidth);
 
 	setUiThemeLight(xml->getIntAttribute("uiThemeLight", uiThemeLight ? 1 : 0) != 0);
@@ -3236,7 +3275,7 @@ void D110AudioProcessor::setStateInformation(const void *data, int sizeInBytes) 
 	gridRowHeight = xml->getIntAttribute("gridRowHeight", gridRowHeight);
 	setCompactPanelMode(xml->getIntAttribute("compactPanelMode", compactPanelMode ? 1 : 0) != 0);
 	setAltPanelView(xml->getIntAttribute("altPanelView", altPanelView ? 1 : 0) != 0);
-	setLcdColor(xml->getIntAttribute("lcdColor", lcdColor));
+	// The LCD colour is a global preference now (ui_prefs.txt): the project's own attribute is ignored.
 	setRetroKeyBindings(xml->getStringAttribute("retroKeyBindings", retroKeyBindings));
 	setRetroLcdCompactMode(xml->getIntAttribute("retroLcdCompactMode", retroLcdCompactMode ? 1 : 0) != 0);
 	setLastDialogDir(juce::File(xml->getStringAttribute("lastDialogDir", lastDialogDir.getFullPathName())));

@@ -343,6 +343,8 @@ public:
 	void setKeyboardPcLayout(int layout) override { keyboardPcLayout = juce::jlimit(0, 1, layout); }
 	int getKeyboardNumOctaves() const override { return keyboardNumOctaves; }
 	void setKeyboardNumOctaves(int numOctaves) override { keyboardNumOctaves = juce::jlimit(0, 4, numOctaves); } // 0 = resizable
+	int getKeyboardVelocity() const override { return keyboardVelocity; }
+	void setKeyboardVelocity(int velocity) override { keyboardVelocity = juce::jlimit(1, 127, velocity); }
 	// See D110KeyboardHost.h and handleIncomingMidiMessage(const juce::MidiMessage &)'s own
 	// comment for where remoteNoteActive actually gets written.
 	bool isNoteActive(int note) const override {
@@ -416,8 +418,14 @@ public:
 
 	// Colour scheme of the front-panel LCD (index into D110Panel's own table, 0 = the original green).
 	// Right-click menu "LCD"; saved with the state like compactPanelMode.
+	// Global preference (ui_prefs.txt in the app data folder, shared by every instance and project), not part
+	// of the saved state: a new instance or an old project starts with the last colour chosen.
 	int getLcdColor() const { return lcdColor; }
-	void setLcdColor(int index) { lcdColor = index; }
+	void setLcdColor(int index);
+
+	// "Volume boost": +3.5 dB (x1.5) on the output, off by default. Global preference like the LCD colour.
+	bool getVolumeBoost() const { return volumeBoost.load(); }
+	void setVolumeBoost(bool enabled);
 
 	// One shared "last used folder" for every file dialog in the app (SysEx bank import/
 	// export, memory snapshot save/load, the sequencer's own .mid/.midiseq dialogs) - set
@@ -1036,6 +1044,7 @@ private:
 	bool keyboardPcInput = false;
 	int keyboardPcLayout = 0;
 	int keyboardNumOctaves = 2;
+	int keyboardVelocity = 100;   // see getKeyboardVelocity()
 
 public:
 	// Last editor width (project state), restored when the editor opens; 0 = never saved.
@@ -1067,6 +1076,7 @@ private:
 	// See getAltPanelView().
 	bool altPanelView = false;
 	int lcdColor = 0;
+	std::atomic<bool> volumeBoost{false};
 	juce::String retroKeyBindings;
 	bool retroLcdCompactMode = false;
 	bool debugModeEnabled = false;

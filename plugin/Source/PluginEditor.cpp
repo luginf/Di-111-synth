@@ -99,8 +99,19 @@ const LcdScheme kLcdSchemes[] = {
 	{ "Black-Green", juce::Colour(0xff000000), juce::Colour(0xff00c040) },
 	{ "Black-Blue",  juce::Colour(0xff000000), juce::Colour(0xff4080ff) },
 	{ "VFD",         juce::Colour(0xff000000), juce::Colour(0xffc0ffff) },
+	// Appended (saved states store the index): the JV-880 emulator's "Green alt", listed right under "Green".
+	{ "Green alt",   juce::Colour(0xff7cb500), juce::Colour(0xff000000) },
 };
 constexpr int kNumLcdSchemes = int(sizeof(kLcdSchemes) / sizeof(kLcdSchemes[0]));
+// Menu order: "Green alt" (last entry) right after "Green"; "White-Blue" is no longer offered (its index stays valid
+// for states saved with it).
+std::vector<int> lcdMenuOrder() {
+	std::vector<int> order { 0, kNumLcdSchemes - 1 };
+	for (int i = 1; i < kNumLcdSchemes - 1; ++i)
+		if (i != 5)
+			order.push_back(i);
+	return order;
+}
 const LcdScheme &lcdScheme(int index) { return kLcdSchemes[juce::jlimit(0, kNumLcdSchemes - 1, index)]; }
 juce::Colour lcdGlassOff(int index) {
 	return index <= 0 ? kGlassOff : lcdScheme(index).on.interpolatedWith(juce::Colours::black, 0.55f);
@@ -409,7 +420,8 @@ void D110Panel::rebuildLcdImage()
 	// that keeps the dots of one stroke visibly running together instead of breaking into
 	// separate squares. `super` now varies with the window, so the gap has to scale with
 	// it to stay that same fraction rather than eating a growing share of a shrunk dot.
-	const float kDotGapX = 2.0f * (super / float(kLcdSuper)), kDotGapY = 2.2f * (super / float(kLcdSuper));
+	// No gap between the dots (as in the JV-880 panel LCD): the gaps chopped the letters into separate squares.
+	const float kDotGapX = 0.0f, kDotGapY = 0.0f;
 
 	g.setColour(lcdScheme(processor.getLcdColor()).ink);
 	for (int line = 0; line < kLines; ++line)
@@ -915,6 +927,7 @@ void D110Panel::showOptionsMenu()
 	// the menu apart from the emulator settings. The firmware reads it as bit 0 of the card
 	// matrix status port; see docs/memory_card.md.
 	m.addItem(4, "Memory card write protect", true, processor.getCore().cardWriteProtect());
+	m.addItem(5, "Volume boost (+3.5 dB, may clip)", true, processor.getVolumeBoost());
 #if JucePlugin_Build_Standalone
 	// "Sequencer > Classic / Retro / Grid" - the same submenu the standalone Nonet Sequencer
 	// and the JV-880 emulator offer on right-click (sequencer/SequencerViewMenu.h).
@@ -929,7 +942,7 @@ void D110Panel::showOptionsMenu()
 	m.addItem(6, "LA Reference (algorithms & envelopes)...");
 	{
 		juce::PopupMenu lcdMenu;
-		for (int i = 0; i < kNumLcdSchemes; ++i)
+		for (int i : lcdMenuOrder())
 			lcdMenu.addItem(1000 + i, kLcdSchemes[i].name, true, processor.getLcdColor() == i);
 		m.addSubMenu("LCD", lcdMenu);
 	}
@@ -1069,6 +1082,9 @@ void D110Panel::showOptionsMenu()
 					[onPicked](const juce::FileChooser &fc) { onPicked(fc.getResult()); });
 				break;
 			}
+			case 5:
+				processor.setVolumeBoost(!processor.getVolumeBoost());
+				break;
 			case 2:
 				if (reverb != nullptr) {
 					reverb->beginChangeGesture();
