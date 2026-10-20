@@ -414,7 +414,7 @@ juce::AudioProcessorEditor *D50AudioProcessor::createEditor() { return new D50Ed
 
 void D50AudioProcessor::getStateInformation(juce::MemoryBlock &destData) {
     juce::MemoryOutputStream out(destData, true);
-    out.writeInt(8);  // format version
+    out.writeInt(9);  // format version
     out.writeInt(bridgeReady ? bridge.patch() : 0);
     out.writeInt(volumePercent);
     out.writeInt(keyboardMidiChannel);
@@ -443,6 +443,8 @@ void D50AudioProcessor::getStateInformation(juce::MemoryBlock &destData) {
     }
     out.writeBool(patchEditFolded);
     out.writeBool(sequencerFolded);
+    out.writeInt(editorWidth);
+    out.writeInt(editorHeight);
 }
 
 void D50AudioProcessor::setStateInformation(const void *data, int sizeInBytes) {
@@ -490,6 +492,10 @@ void D50AudioProcessor::setStateInformation(const void *data, int sizeInBytes) {
         const bool patchEdit = in.readBool();
         const bool sequencer = in.readBool();
         setFolds(patchEdit, sequencer);
+    }
+    if (version >= 9) {
+        editorWidth = in.readInt();
+        editorHeight = in.readInt();
     }
     if (bridgeReady) {
         bridge.selectPatch(patch);

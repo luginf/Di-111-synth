@@ -276,6 +276,10 @@ private:
     int keyboardNumOctaves = 2;
     bool uiFontScaleBig = false;
     bool patchEditFolded = false;
+public:
+    // Last editor size (project state), restored when the editor opens; 0 = never saved.
+    int editorWidth = 0, editorHeight = 0;
+private:
     bool sequencerFolded = true;
     std::array<std::atomic<bool>, 128> noteActiveFlags{};
 

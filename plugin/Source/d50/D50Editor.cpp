@@ -572,7 +572,11 @@ D50Editor::D50Editor(D50AudioProcessor &p)
     // knobs, both fold handles, keyboard - see computeContentHeight()); maximum is generous
     // enough for both unfolded at once plus some resize headroom for the scrolling grid.
     setResizeLimits(620, 480, 1400, 1600);
-    setSize(760, computeContentHeight());
+    if (processor.editorWidth >= 620 && processor.editorHeight >= 480)
+        setSize(juce::jmin(processor.editorWidth, 1400), juce::jmin(processor.editorHeight, 1600));
+    else
+        setSize(760, computeContentHeight());
+    sizeTracking = true;
     startTimerHz(4);
     timerCallback();
 }
@@ -828,6 +832,16 @@ void D50Editor::layoutToneColumns() {
 }
 
 void D50Editor::resized() {
+    // Remember the size once a drag has settled (not once per pixel).
+    if (sizeTracking && getWidth() > 0 && getHeight() > 0) {
+        const int token = ++sizeSaveToken;
+        juce::Timer::callAfterDelay(600, [safe = juce::Component::SafePointer<D50Editor>(this), token] {
+            if (safe != nullptr && token == safe->sizeSaveToken) {
+                safe->processor.editorWidth = safe->getWidth();
+                safe->processor.editorHeight = safe->getHeight();
+            }
+        });
+    }
     auto area = getLocalBounds().reduced(12);
     auto titleRow = area.removeFromTop(26);
 #if JucePlugin_Build_Standalone

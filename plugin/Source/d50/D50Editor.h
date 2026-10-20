@@ -31,6 +31,8 @@ public:
 
     void paint(juce::Graphics &g) override;
     void resized() override;
+    bool sizeTracking = false; // set once the constructor has chosen the initial size
+    int sizeSaveToken = 0;
     // Only reachable once this editor is actually attached to a top-level
     // window (see this file's own header comment) - a Standalone run gets
     // JUCE's own DocumentWindow, so this applies; a future VST3 build's host
